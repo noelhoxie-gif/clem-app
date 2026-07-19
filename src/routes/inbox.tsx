@@ -681,42 +681,56 @@ function InboxPage() {
     });
     setGmailProgress(null);
     setSyncStatus(`Found ${emails.length} email${emails.length === 1 ? "" : "s"} · verifying clothing receipts with AI…`);
-    const parsed = await parseReceiptEmails(emails, (p) => {
-      setGroqProgress(p);
-      setSyncStatus(
-        p.waitingSeconds
-          ? `Rate limit reached — resuming in ${p.waitingSeconds}s (${p.done}/${p.total} checked)…`
-          : `Verifying clothing receipts with AI — ${p.done}/${p.total}…`,
-      );
-    });
-    setGroqProgress(null);
-    const parsedByMsgId = new Map(parsed.map((p) => [p.messageId, p]));
+
+    // Show every scanned email right away (no verdict yet) — entries get
+    // filled in with parsedData as each Groq batch confirms them below.
     setScannedEmails(emails.map((e) => ({
       subject: e.subject || "(no subject)",
       from: e.from,
       messageId: e.messageId,
-      parsedData: parsedByMsgId.get(e.messageId),
     })));
+
     let added = 0;
-    parsed.forEach((p) => {
-      const before = receipts.get().receipts.length;
-      receipts.addReal({
-        messageId: p.messageId,
-        retailer: p.retailer,
-        sender: p.sender,
-        subject: p.subject,
-        orderDate: p.orderDate,
-        price: p.price,
-        itemName: p.itemName,
-        brand: p.brand,
-        color: p.color,
-        category: p.category,
-        season: p.season,
-        kind: p.kind,
-        image: p.imageUrl ?? shopBag,
-      });
-      if (receipts.get().receipts.length > before) added++;
-    });
+    await parseReceiptEmails(
+      emails,
+      (p) => {
+        setGroqProgress(p);
+        setSyncStatus(
+          p.waitingSeconds
+            ? `Rate limit reached — resuming in ${p.waitingSeconds}s (${p.done}/${p.total} checked)…`
+            : `Verifying clothing receipts with AI — ${p.done}/${p.total}…`,
+        );
+      },
+      (newlyConfirmed) => {
+        // Stream results in as soon as each batch is verified, rather than
+        // waiting for the whole queue (which can span several minutes once
+        // the free-tier rate limit is paced out) to finish.
+        const byMsgId = new Map(newlyConfirmed.map((p) => [p.messageId, p]));
+        setScannedEmails((prev) =>
+          prev.map((e) => (byMsgId.has(e.messageId) ? { ...e, parsedData: byMsgId.get(e.messageId) } : e)),
+        );
+        newlyConfirmed.forEach((p) => {
+          const before = receipts.get().receipts.length;
+          receipts.addReal({
+            messageId: p.messageId,
+            retailer: p.retailer,
+            sender: p.sender,
+            subject: p.subject,
+            orderDate: p.orderDate,
+            price: p.price,
+            itemName: p.itemName,
+            brand: p.brand,
+            color: p.color,
+            category: p.category,
+            season: p.season,
+            kind: p.kind,
+            image: p.imageUrl ?? shopBag,
+          });
+          if (receipts.get().receipts.length > before) added++;
+        });
+      },
+    );
+    setGroqProgress(null);
     receipts.markSynced();
     setSyncResult(
       added > 0

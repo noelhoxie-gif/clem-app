@@ -252,15 +252,71 @@ interface QueuedEmail {
   lower: string;
 }
 
+/** Builds the ParsedReceipt(s) for a single email once Groq has confirmed it's
+ * a real clothing purchase. A single email can yield multiple receipts when
+ * Schema.org order markup lists several items. */
+function toParsedReceipts(q: QueuedEmail, groq: GroqItem): ParsedReceipt[] {
+  const { email, domain, lower } = q;
+  const fallbackBrand = DOMAIN_TO_BRAND[domain] ?? domain.split(".")[0];
+  const retailer = DOMAIN_TO_BRAND[domain] ?? fallbackBrand;
+  const schema = email.orderSchema;
+
+  // Groq has confirmed this is a real clothing receipt — if the email also
+  // has structured Schema.org order data, prefer it (often multi-item and
+  // more precise) now that the clothing check has independently passed.
+  if (schema && schema.items.length > 0 && !schema.isReturn) {
+    const schemaRetailer = schema.merchant ?? retailer;
+    const orderDate = parseOrderDate(schema.orderDate ?? email.date);
+    return schema.items.map((item) => {
+      const sym = item.currency === "GBP" ? "£" : item.currency === "EUR" ? "€" : "$";
+      return {
+        messageId: email.messageId,
+        retailer: schemaRetailer,
+        sender: email.from,
+        subject: email.subject,
+        orderDate,
+        price: item.price ? `${sym}${item.price}` : (groq.price ?? extractPrice(lower)),
+        itemName: item.name,
+        brand: item.brand ?? schemaRetailer,
+        category: guessCategory(`${item.name} ${item.brand ?? ""}`),
+        season: guessSeason(`${item.name} ${item.brand ?? ""}`),
+        kind: "purchase" as const,
+        imageUrl: email.imageUrl,
+      };
+    });
+  }
+
+  return [
+    {
+      messageId: email.messageId,
+      retailer,
+      sender: email.from,
+      subject: email.subject,
+      orderDate: parseOrderDate(email.date),
+      price: groq.price ?? extractPrice(lower),
+      itemName: groq.itemName,
+      brand: groq.brand || fallbackBrand,
+      color: groq.color ?? undefined,
+      category: groq.category,
+      season: groq.season,
+      kind: "purchase" as const,
+      imageUrl: email.imageUrl,
+    },
+  ];
+}
+
 /** Processes the full Groq queue, pacing calls to stay within the free-tier
  * 30 requests/minute limit. Rather than capping at 30 and dropping or
  * guessing at the rest, it waits out the remainder of the rolling minute and
- * keeps going until every queued email has been checked. */
+ * keeps going until every queued email has been checked. As soon as each
+ * batch comes back, any confirmed receipts are handed to `onReceipts`
+ * immediately rather than being held until the whole queue finishes. */
 async function processGroqQueue(
   queue: QueuedEmail[],
   onProgress?: (p: GroqProgress) => void,
-): Promise<Map<string, GroqItem>> {
-  const results = new Map<string, GroqItem>();
+  onReceipts?: (newlyConfirmed: ParsedReceipt[]) => void,
+): Promise<ParsedReceipt[]> {
+  const allResults: ParsedReceipt[] = [];
   let windowStart = Date.now();
   let windowCalls = 0;
 
@@ -278,21 +334,31 @@ async function processGroqQueue(
     const batch = queue.slice(i, i + 5);
     const settled = await Promise.allSettled(batch.map((q) => groqParseEmail(q.email)));
     windowCalls += batch.length;
+
+    const batchReceipts: ParsedReceipt[] = [];
     settled.forEach((s, j) => {
-      if (s.status === "fulfilled" && s.value) results.set(batch[j].email.messageId, s.value);
+      if (s.status === "fulfilled" && s.value) {
+        batchReceipts.push(...toParsedReceipts(batch[j], s.value));
+      }
       // rejected (call failed after retries) or fulfilled with null (Groq
       // said not-clothing) both simply mean this email produces no result.
     });
+
+    if (batchReceipts.length > 0) {
+      allResults.push(...batchReceipts);
+      onReceipts?.(batchReceipts);
+    }
     onProgress?.({ done: Math.min(i + 5, queue.length), total: queue.length });
     if (i + 5 < queue.length) await new Promise((r) => setTimeout(r, 1100));
   }
 
-  return results;
+  return allResults;
 }
 
 export async function parseReceiptEmails(
   emails: EmailMeta[],
   onProgress?: (p: GroqProgress) => void,
+  onReceipts?: (newlyConfirmed: ParsedReceipt[]) => void,
 ): Promise<ParsedReceipt[]> {
   if (!GROQ_API_KEY) {
     throw new Error(
@@ -327,60 +393,7 @@ export async function parseReceiptEmails(
     groqQueue.push({ email, domain, lower });
   }
 
-  // ── Step 2: every candidate must pass Groq — paced, not capped ──
-  const groqResults = await processGroqQueue(groqQueue, onProgress);
-
-  const results: ParsedReceipt[] = [];
-  for (const { email, domain, lower } of groqQueue) {
-    const groq = groqResults.get(email.messageId);
-    if (!groq) continue; // Groq rejected it (or the call failed) — drop silently
-
-    const fallbackBrand = DOMAIN_TO_BRAND[domain] ?? domain.split(".")[0];
-    const retailer = DOMAIN_TO_BRAND[domain] ?? fallbackBrand;
-    const schema = email.orderSchema;
-
-    // Groq has confirmed this is a real clothing receipt — if the email also
-    // has structured Schema.org order data, prefer it (often multi-item and
-    // more precise) now that the clothing check has independently passed.
-    if (schema && schema.items.length > 0 && !schema.isReturn) {
-      const schemaRetailer = schema.merchant ?? retailer;
-      const orderDate = parseOrderDate(schema.orderDate ?? email.date);
-      for (const item of schema.items) {
-        const sym = item.currency === "GBP" ? "£" : item.currency === "EUR" ? "€" : "$";
-        results.push({
-          messageId: email.messageId,
-          retailer: schemaRetailer,
-          sender: email.from,
-          subject: email.subject,
-          orderDate,
-          price: item.price ? `${sym}${item.price}` : (groq.price ?? extractPrice(lower)),
-          itemName: item.name,
-          brand: item.brand ?? schemaRetailer,
-          category: guessCategory(`${item.name} ${item.brand ?? ""}`),
-          season: guessSeason(`${item.name} ${item.brand ?? ""}`),
-          kind: "purchase",
-          imageUrl: email.imageUrl,
-        });
-      }
-      continue;
-    }
-
-    results.push({
-      messageId: email.messageId,
-      retailer,
-      sender: email.from,
-      subject: email.subject,
-      orderDate: parseOrderDate(email.date),
-      price: groq.price ?? extractPrice(lower),
-      itemName: groq.itemName,
-      brand: groq.brand || fallbackBrand,
-      color: groq.color ?? undefined,
-      category: groq.category,
-      season: groq.season,
-      kind: "purchase",
-      imageUrl: email.imageUrl,
-    });
-  }
-
-  return results;
+  // ── Step 2: every candidate must pass Groq — paced, not capped, and
+  // streamed back via onReceipts as each batch is confirmed ──
+  return processGroqQueue(groqQueue, onProgress, onReceipts);
 }
