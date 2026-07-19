@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { PageShell } from "@/components/vesti/PageShell";
-import { useCloset, closet, CATEGORIES, SEASONS, POPULAR_BRANDS, type Category, type Season } from "@/lib/vesti/store";
+import { useCloset, closet, CATEGORIES, SEASONS, type Category, type Season } from "@/lib/vesti/store";
+import { useBrandNames } from "@/lib/vesti/brands";
 import { uploadClosetImage, replaceBackground, gptImageStudio } from "@/lib/vesti/supabase-storage";
 import { addCredits } from "@/lib/vesti/credits";
 import { ArrowLeft, Camera, Trash2, Wand2, Zap } from "lucide-react";
@@ -34,6 +35,7 @@ function EditItemPage() {
   const { items } = useCloset();
   const item = items.find((i) => i.id === itemId);
   const navigate = useNavigate();
+  const brandOptions = useBrandNames();
 
   const [name, setName] = useState(item?.name ?? "");
   const [brand, setBrand] = useState(item?.brand ?? "");
@@ -239,7 +241,7 @@ function EditItemPage() {
                 className="mt-1 w-full rounded-xl bg-card border border-border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-mint/30"
               />
               {showBrandSuggestions && brand.length >= 1 && (() => {
-                const matches = POPULAR_BRANDS.filter((b) => b.toLowerCase().startsWith(brand.toLowerCase()) && b.toLowerCase() !== brand.toLowerCase()).slice(0, 6);
+                const matches = brandOptions.filter((b) => b.toLowerCase().startsWith(brand.toLowerCase()) && b.toLowerCase() !== brand.toLowerCase()).slice(0, 6);
                 return matches.length > 0 ? (
                   <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl overflow-hidden shadow-lg">
                     {matches.map((b) => (

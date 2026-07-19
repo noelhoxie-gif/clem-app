@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { PageShell } from "@/components/vesti/PageShell";
-import { CATEGORIES, SEASONS, POPULAR_BRANDS, type Category, type Season, type DepartingIntent, closet } from "@/lib/vesti/store";
+import { CATEGORIES, SEASONS, type Category, type Season, type DepartingIntent, closet } from "@/lib/vesti/store";
+import { useBrandNames } from "@/lib/vesti/brands";
 import { uploadClosetImage, replaceBackground, flatLayPhoto, smartEditPhoto, gptImageStudio } from "@/lib/vesti/supabase-storage";
 import { useCredits, consumeCredits, addCredits, CREDIT_COSTS } from "@/lib/vesti/credits";
 import { ArrowLeft, Camera, Link2, Sparkles, Wand2, Layers, Wand, Zap } from "lucide-react";
@@ -90,6 +91,7 @@ Output only the JSON object, nothing else.` }
 function AddPage() {
   const navigate = useNavigate();
   const credits = useCredits();
+  const brandOptions = useBrandNames();
   const [mode, setMode] = useState<Mode>("photo");
   const [preview, setPreview] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -508,7 +510,7 @@ function AddPage() {
                 className="mt-1 w-full rounded-xl bg-card border border-border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-mint/30"
               />
               {showBrandSuggestions && brand.length >= 1 && (() => {
-                const matches = POPULAR_BRANDS.filter((b) => b.toLowerCase().startsWith(brand.toLowerCase()) && b.toLowerCase() !== brand.toLowerCase()).slice(0, 6);
+                const matches = brandOptions.filter((b) => b.toLowerCase().startsWith(brand.toLowerCase()) && b.toLowerCase() !== brand.toLowerCase()).slice(0, 6);
                 return matches.length > 0 ? (
                   <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl overflow-hidden shadow-lg">
                     {matches.map((b) => (
