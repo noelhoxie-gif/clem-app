@@ -119,11 +119,13 @@ function FoldersPage() {
                       </div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/70 to-ink/10" />
-                    <div className="absolute top-3 left-3">
-                      <span className="text-[9px] uppercase tracking-[0.24em] px-2 py-1 rounded-full bg-mauve text-cream">
-                        Curated
-                      </span>
-                    </div>
+                    {f.itemIds.length === 0 && (
+                      <div className="absolute top-3 left-3">
+                        <span className="text-[9px] uppercase tracking-[0.24em] px-2 py-1 rounded-full bg-mauve text-cream">
+                          Curated
+                        </span>
+                      </div>
+                    )}
                     <div className="absolute bottom-3 left-4 right-4 text-cream">
                       <p className="text-sm font-medium leading-tight">{f.name}</p>
                       <p className="text-[10px] opacity-80 mt-0.5">{f.itemIds.length} items</p>
