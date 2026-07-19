@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { PageShell } from "@/components/vesti/PageShell";
 import { CATEGORIES, SEASONS, type Category, type Season, type DepartingIntent, closet } from "@/lib/vesti/store";
-import { useBrandNames } from "@/lib/vesti/brands";
+import { useBrandNames, matchKnownBrand } from "@/lib/vesti/brands";
 import { uploadClosetImage, replaceBackground, flatLayPhoto, smartEditPhoto, gptImageStudio } from "@/lib/vesti/supabase-storage";
 import { useCredits, consumeCredits, addCredits, CREDIT_COSTS } from "@/lib/vesti/credits";
 import { ArrowLeft, Camera, Link2, Sparkles, Wand2, Layers, Wand, Zap } from "lucide-react";
@@ -46,7 +46,7 @@ function inferCategory(text: string): Category {
   return "Tops";
 }
 
-async function detectClothingAI(imageBlob: Blob): Promise<{ name?: string; category?: Category; color?: string; season?: Season } | null> {
+async function detectClothingAI(imageBlob: Blob): Promise<{ name?: string; category?: Category; color?: string; season?: Season; brand?: string } | null> {
   const key = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
   if (!key) return null;
   const base64 = await new Promise<string>((resolve, reject) => {
@@ -64,10 +64,11 @@ async function detectClothingAI(imageBlob: Blob): Promise<{ name?: string; categ
 - "category": one of: Tops, Bottoms, Dresses, Sweaters, Shoes, Accessories, Outerwear
 - "color": primary color in one or two words
 - "season": one of: Warm, Cold, Year-round
+- "brand": the brand name ONLY if a logo, woven label, hang tag, or other marking is clearly legible in the photo. If no brand marking is visible or you would just be guessing from the garment's style, set this to null — never guess a brand from cut or style alone.
 
 Output only the JSON object, nothing else.` }
     ]}],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 128, responseMimeType: "application/json" },
+    generationConfig: { temperature: 0.1, maxOutputTokens: 160, responseMimeType: "application/json" },
   });
   try {
     let res: Response | null = null;
@@ -82,7 +83,20 @@ Output only the JSON object, nothing else.` }
     if (!res!.ok) return null;
     const json = await res!.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
     const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-    return JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()) as { name?: string; category?: Category; color?: string; season?: Season };
+    const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()) as {
+      name?: string; category?: Category; color?: string; season?: Season; brand?: string | null;
+    };
+    // Ground the guess against the known brands table — only keep it if it
+    // actually matches a real brand name, so a hallucinated guess never
+    // silently lands in the item's brand field.
+    const verifiedBrand = await matchKnownBrand(parsed.brand);
+    return {
+      name: parsed.name,
+      category: parsed.category,
+      color: parsed.color,
+      season: parsed.season,
+      brand: verifiedBrand ?? undefined,
+    };
   } catch {
     return null;
   }
@@ -145,6 +159,7 @@ function AddPage() {
         if (detected.category) setCategory(detected.category);
         if (detected.color) setColor(detected.color);
         if (detected.season) setSeason(detected.season);
+        if (detected.brand) setBrand((current) => current || detected.brand!);
       }
     }
   };
