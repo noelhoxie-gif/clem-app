@@ -12,10 +12,8 @@ import {
   BookmarkPlus,
   Check,
   FolderPlus,
-  Grid2x2,
   RefreshCw,
   Search,
-  Shirt,
   Shuffle,
   Sparkles,
   X,
@@ -353,7 +351,6 @@ function OutfitsPage() {
   const [savePick, setSavePick] = useState<{ pieces: Item[]; title: string } | null>(null);
   const [savedToFolderId, setSavedToFolderId] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState("");
-  const [view, setView] = useState<"grid" | "fit">("grid");
   const [tryOn, setTryOn] = useState<{ outfit: Outfit; sponsored: { name: string; brand: string; image: string; category: Category } } | null>(null);
   const [overrides, setOverrides] = useState<Record<number, Partial<Record<Slot, Item>>>>({});
   const [picker, setPicker] = useState<{ lookIndex: number; slot: Slot } | null>(null);
@@ -538,24 +535,6 @@ function OutfitsPage() {
           Mix, remix, and save outfits for what&rsquo;s next — a trip, an event, an idea. Tap any
           piece to swap it.
         </p>
-
-        {/* View toggle */}
-        <div className="inline-flex items-center gap-1 p-1 mb-5 rounded-full bg-card border border-border">
-          <button
-            type="button"
-            onClick={() => setView("grid")}
-            className={`text-[10px] uppercase tracking-[0.22em] px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 transition ${view === "grid" ? "bg-mauve text-cream" : "text-ink/60"}`}
-          >
-            <Grid2x2 className="size-3" strokeWidth={1.5} /> Grid view
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("fit")}
-            className={`text-[10px] uppercase tracking-[0.22em] px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 transition ${view === "fit" ? "bg-mauve text-cream" : "text-ink/60"}`}
-          >
-            <Shirt className="size-3" strokeWidth={1.5} /> Fit model view
-          </button>
-        </div>
 
         {/* Conversational styling — iMessage-style thread with Clem */}
         <div className="mb-4 rounded-2xl border border-border bg-card p-4">
@@ -774,25 +753,7 @@ function OutfitsPage() {
                 const pieces = [o.outer, o.top, o.bottom, o.shoes, o.accessory].filter(Boolean) as Item[];
                 return (
                   <article key={`ai-${i}`} className="animate-rise" style={{ animationDelay: `${i * 80}ms` }}>
-                    {view === "fit" ? (
-                      <FitModelStage className="py-4">
-                        <FitModel
-                          className="max-w-[260px]"
-                          height={profile.height}
-                          weight={profile.weight}
-                          shape={profile.bodyShape}
-                          skinTone={(profile.skinTone || "light") as never}
-                          outfit={{
-                            outer: o.outer ?? undefined, top: o.top ?? undefined,
-                            bottom: o.bottom ?? undefined, shoes: o.shoes ?? undefined,
-                            accessory: o.accessory ?? undefined,
-                          }}
-                          onSlotClick={(slot) => setPicker({ lookIndex: -(i + 1), slot })}
-                        />
-                      </FitModelStage>
-                    ) : (
-                      <MannequinLook o={o} onSlotClick={(slot) => setPicker({ lookIndex: -(i + 1), slot })} />
-                    )}
+                    <MannequinLook o={o} onSlotClick={(slot) => setPicker({ lookIndex: -(i + 1), slot })} />
                     <div className="mt-2 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-[9px] uppercase tracking-[0.22em] text-mint">Look {String(i + 1).padStart(2, "0")} · AI styled</p>
@@ -837,30 +798,10 @@ function OutfitsPage() {
                   className="animate-rise"
                   style={{ animationDelay: `${i * 80}ms` }}
                 >
-                  {view === "fit" ? (
-                    <FitModelStage className="py-4">
-                      <FitModel
-                        className="max-w-[260px]"
-                        height={profile.height}
-                        weight={profile.weight}
-                        shape={profile.bodyShape}
-                        skinTone={(profile.skinTone || "light") as never}
-                        outfit={{
-                          outer: o.outer ?? undefined,
-                          top: o.top ?? undefined,
-                          bottom: o.bottom ?? undefined,
-                          shoes: o.shoes ?? undefined,
-                          accessory: o.accessory ?? undefined,
-                        }}
-                        onSlotClick={(slot) => setPicker({ lookIndex: i, slot })}
-                      />
-                    </FitModelStage>
-                  ) : (
-                    <MannequinLook
-                      o={o}
-                      onSlotClick={(slot) => setPicker({ lookIndex: i, slot })}
-                    />
-                  )}
+                  <MannequinLook
+                    o={o}
+                    onSlotClick={(slot) => setPicker({ lookIndex: i, slot })}
+                  />
 
                   <div className="mt-2 flex items-center justify-between gap-3">
                     <div className="min-w-0">
