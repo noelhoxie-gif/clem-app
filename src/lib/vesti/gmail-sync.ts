@@ -306,7 +306,16 @@ export interface EmailMeta {
   imageUrl?: string;
 }
 
-export async function fetchReceiptEmails(accessToken: string): Promise<EmailMeta[]> {
+export interface FetchProgress {
+  stage: "searching" | "fetching";
+  done: number;
+  total: number;
+}
+
+export async function fetchReceiptEmails(
+  accessToken: string,
+  onProgress?: (p: FetchProgress) => void,
+): Promise<EmailMeta[]> {
   // Two parallel searches:
   // 1. Subject-line receipt keywords — catches confirmations regardless of Gmail tab
   // 2. Known fashion brand senders — catches receipts that land in Primary/Updates
@@ -335,6 +344,8 @@ export async function fetchReceiptEmails(accessToken: string): Promise<EmailMeta
     const json = JSON.parse(text) as { messages?: GmailMessage[]; nextPageToken?: string };
     return { messages: json.messages ?? [], nextPageToken: json.nextPageToken };
   }
+
+  onProgress?.({ stage: "searching", done: 0, total: 0 });
 
   // Run both queries in parallel, then union + deduplicate by message ID
   const [shoppingResults, fashionResults] = await Promise.all([
@@ -385,6 +396,7 @@ export async function fetchReceiptEmails(accessToken: string): Promise<EmailMeta
     const batch = messages.slice(i, i + 5);
     const results = await Promise.all(batch.map((m) => fetchDetail(m.id)));
     details.push(...results);
+    onProgress?.({ stage: "fetching", done: details.length, total: messages.length });
     if (i + 5 < messages.length) await new Promise((r) => setTimeout(r, 150));
   }
 

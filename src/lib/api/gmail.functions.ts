@@ -15,8 +15,16 @@ interface GroqItem {
   price: string | null;
 }
 
+/**
+ * Calls Groq to verify + extract clothing-receipt data for one email.
+ * Retries a couple of times on transient failures (429/5xx/network) so a
+ * blip doesn't get treated the same as Groq genuinely saying "not clothing".
+ * Throws only when the call could not be completed at all after retrying;
+ * returns null when Groq successfully responded that this isn't a clothing
+ * purchase.
+ */
 async function groqParseEmail(email: EmailMeta): Promise<GroqItem | null> {
-  if (!GROQ_API_KEY) return null;
+  if (!GROQ_API_KEY) throw new Error("VITE_GROQ_API_KEY is not configured");
   const text = [
     `Subject: ${email.subject}`,
     `From: ${email.from}`,
@@ -24,26 +32,37 @@ async function groqParseEmail(email: EmailMeta): Promise<GroqItem | null> {
     email.bodyText ? `Body: ${email.bodyText.slice(0, 400)}` : "",
   ].filter(Boolean).join("\n");
 
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        response_format: { type: "json_object" },
-        messages: [{
-          role: "user",
-          content: `You are a clothing receipt parser. Extract data from this email. If it is NOT a clothing purchase receipt, return {"isClothing":false}.\n\nReturn JSON: {"isClothing":boolean,"itemName":string,"brand":string,"color":string|null,"category":"Tops"|"Bottoms"|"Dresses"|"Outerwear"|"Sweaters"|"Shoes"|"Accessories","season":"Warm"|"Cold"|"Year-round","price":string|null}\n\n${text}`,
-        }],
-      }),
-    });
-    if (!res.ok) return null;
-    const d = await res.json() as { choices: [{ message: { content: string } }] };
-    const parsed = JSON.parse(d.choices[0].message.content) as GroqItem;
-    return parsed.isClothing ? parsed : null;
-  } catch {
-    return null;
+  const body = JSON.stringify({
+    model: GROQ_MODEL,
+    response_format: { type: "json_object" },
+    messages: [{
+      role: "user",
+      content: `You are a clothing receipt parser. Extract data from this email. If it is NOT a clothing purchase receipt, return {"isClothing":false}.\n\nReturn JSON: {"isClothing":boolean,"itemName":string,"brand":string,"color":string|null,"category":"Tops"|"Bottoms"|"Dresses"|"Outerwear"|"Sweaters"|"Shoes"|"Accessories","season":"Warm"|"Cold"|"Year-round","price":string|null}\n\n${text}`,
+    }],
+  });
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+        body,
+      });
+      if (res.status === 429 || res.status >= 500) {
+        lastError = new Error(`Groq ${res.status}`);
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 1000));
+        continue;
+      }
+      if (!res.ok) throw new Error(`Groq ${res.status}`);
+      const d = await res.json() as { choices: [{ message: { content: string } }] };
+      const parsed = JSON.parse(d.choices[0].message.content) as GroqItem;
+      return parsed.isClothing ? parsed : null;
+    } catch (e) {
+      lastError = e;
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error("Groq call failed");
 }
 
 export interface ParsedReceipt {
@@ -205,12 +224,84 @@ function guessItemName(subject: string, brand: string): string {
   return `${brand} order`;
 }
 
-// ── Main parser (no AI — JSON-LD schema first, regex fallback) ───────────────
+// ── Main parser — two-step: cheap pre-filter, then mandatory Groq gate ───────
+//
+// Step 1 (below, in the collection loop): eliminate obvious non-candidates
+// cheaply (skip-listed domains, returns, and — only for completely unknown
+// domains — a keyword pre-filter) without spending an AI call on them.
+//
+// Step 2 (processGroqQueue): every remaining candidate, regardless of domain
+// reputation, must be individually confirmed as an actual clothing purchase
+// by Groq. There is no schema.org "trusted domain" bypass and no keyword-only
+// fallback — a retailer selling clothing alongside home goods, beauty, or
+// gift cards no longer gets every item auto-accepted just because the email
+// carries structured order markup. Schema.org data is still used (for its
+// richer multi-item detail) once Groq has independently confirmed the email
+// is a real clothing receipt.
 
-export async function parseReceiptEmails(emails: EmailMeta[]): Promise<ParsedReceipt[]> {
-  const results: ParsedReceipt[] = [];
-  // Queue for Groq verification + extraction
-  const groqQueue: { email: EmailMeta; domain: string; lower: string }[] = [];
+export interface GroqProgress {
+  done: number;
+  total: number;
+  /** Set while paused, waiting out the free-tier per-minute rate limit. */
+  waitingSeconds?: number;
+}
+
+interface QueuedEmail {
+  email: EmailMeta;
+  domain: string;
+  lower: string;
+}
+
+/** Processes the full Groq queue, pacing calls to stay within the free-tier
+ * 30 requests/minute limit. Rather than capping at 30 and dropping or
+ * guessing at the rest, it waits out the remainder of the rolling minute and
+ * keeps going until every queued email has been checked. */
+async function processGroqQueue(
+  queue: QueuedEmail[],
+  onProgress?: (p: GroqProgress) => void,
+): Promise<Map<string, GroqItem>> {
+  const results = new Map<string, GroqItem>();
+  let windowStart = Date.now();
+  let windowCalls = 0;
+
+  for (let i = 0; i < queue.length; i += 5) {
+    if (windowCalls + 5 > GROQ_MAX_CALLS) {
+      const waitMs = Math.max(0, 60_000 - (Date.now() - windowStart));
+      if (waitMs > 0) {
+        onProgress?.({ done: i, total: queue.length, waitingSeconds: Math.ceil(waitMs / 1000) });
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+      windowStart = Date.now();
+      windowCalls = 0;
+    }
+
+    const batch = queue.slice(i, i + 5);
+    const settled = await Promise.allSettled(batch.map((q) => groqParseEmail(q.email)));
+    windowCalls += batch.length;
+    settled.forEach((s, j) => {
+      if (s.status === "fulfilled" && s.value) results.set(batch[j].email.messageId, s.value);
+      // rejected (call failed after retries) or fulfilled with null (Groq
+      // said not-clothing) both simply mean this email produces no result.
+    });
+    onProgress?.({ done: Math.min(i + 5, queue.length), total: queue.length });
+    if (i + 5 < queue.length) await new Promise((r) => setTimeout(r, 1100));
+  }
+
+  return results;
+}
+
+export async function parseReceiptEmails(
+  emails: EmailMeta[],
+  onProgress?: (p: GroqProgress) => void,
+): Promise<ParsedReceipt[]> {
+  if (!GROQ_API_KEY) {
+    throw new Error(
+      "Clothing verification requires a Groq API key (VITE_GROQ_API_KEY) — every scanned email is checked against it before anything is added.",
+    );
+  }
+
+  // ── Step 1: cheap pre-filter — reduce the queue without an AI call ──
+  const groqQueue: QueuedEmail[] = [];
 
   for (const email of emails) {
     const domain = extractDomain(email.from);
@@ -222,7 +313,8 @@ export async function parseReceiptEmails(emails: EmailMeta[]): Promise<ParsedRec
     const isPureFashionDomain = FASHION_DOMAINS.has(domain) && !GENERAL_RETAILERS.has(domain);
     const isGeneralRetailer = GENERAL_RETAILERS.has(domain);
 
-    // Unknown domains: must pass clothing keyword pre-filter
+    // Only unknown domains get pre-filtered by keyword — known fashion
+    // domains and general retailers always go on to the mandatory Groq check.
     if (!isPureFashionDomain && !isGeneralRetailer) {
       const hasClothing = CLOTHING_KEYWORDS.some((kw) => lower.includes(kw));
       const hasNonFashion = NON_FASHION_KEYWORDS.some((kw) => lower.includes(kw));
@@ -231,103 +323,63 @@ export async function parseReceiptEmails(emails: EmailMeta[]): Promise<ParsedRec
 
     const isReturn = /\b(return|refund|exchange|credit)\b/i.test(email.subject);
     if (isReturn) continue;
-    const fallbackBrand = DOMAIN_TO_BRAND[domain] ?? domain.split(".")[0];
 
-    // ── Path 1: Schema.org JSON-LD — only for pure fashion domains (trusted) ──
-    const schema = email.orderSchema;
-    if (isPureFashionDomain && schema && (schema.items.length > 0 || schema.merchant)) {
-      if (schema.isReturn) continue;
-      const retailer = schema.merchant ?? DOMAIN_TO_BRAND[domain] ?? fallbackBrand;
-      const orderDate = parseOrderDate(schema.orderDate ?? email.date);
-
-      if (schema.items.length > 0) {
-        for (const item of schema.items) {
-          const sym = item.currency === "GBP" ? "£" : item.currency === "EUR" ? "€" : "$";
-          results.push({
-            messageId: email.messageId,
-            retailer,
-            sender: email.from,
-            subject: email.subject,
-            orderDate,
-            price: item.price ? `${sym}${item.price}` : extractPrice(lower),
-            itemName: item.name,
-            brand: item.brand ?? retailer,
-            category: guessCategory(`${item.name} ${item.brand ?? ""}`),
-            season: guessSeason(`${item.name} ${item.brand ?? ""}`),
-            kind: "purchase",
-            imageUrl: email.imageUrl,
-          });
-        }
-        continue;
-      }
-    }
-
-    // ── Everything else → Groq queue (verify clothing + extract) ──
     groqQueue.push({ email, domain, lower });
   }
 
-  // ── Path 2: Groq AI (capped at GROQ_MAX_CALLS) then regex fallback ──
-  // Groq both verifies the email is a clothing receipt AND extracts item data.
-  // General retailers must pass Groq — no regex bypass.
-  const groqSlots = GROQ_API_KEY ? Math.min(groqQueue.length, GROQ_MAX_CALLS) : 0;
-  const groqResults = new Map<string, GroqItem>();
-  const groqAttempted = new Set<string>(); // tracks which emails Groq actually ran on
+  // ── Step 2: every candidate must pass Groq — paced, not capped ──
+  const groqResults = await processGroqQueue(groqQueue, onProgress);
 
-  if (groqSlots > 0) {
-    const toGroq = groqQueue.slice(0, groqSlots);
-    for (let i = 0; i < toGroq.length; i += 5) {
-      const batch = toGroq.slice(i, i + 5);
-      const items = await Promise.all(batch.map((q) => groqParseEmail(q.email)));
-      batch.forEach((q, j) => {
-        groqAttempted.add(q.email.messageId);
-        if (items[j]) groqResults.set(q.email.messageId, items[j]!);
-      });
-      if (i + 5 < toGroq.length) await new Promise((r) => setTimeout(r, 1100));
-    }
-  }
-
+  const results: ParsedReceipt[] = [];
   for (const { email, domain, lower } of groqQueue) {
-    const fallbackBrand = DOMAIN_TO_BRAND[domain] ?? domain.split(".")[0];
     const groq = groqResults.get(email.messageId);
-    const wasAttempted = groqAttempted.has(email.messageId);
-    const isGeneralRetailer = GENERAL_RETAILERS.has(domain);
+    if (!groq) continue; // Groq rejected it (or the call failed) — drop silently
 
-    if (groq) {
-      // Groq confirmed it's a clothing purchase
-      results.push({
-        messageId: email.messageId,
-        retailer: DOMAIN_TO_BRAND[domain] ?? fallbackBrand,
-        sender: email.from,
-        subject: email.subject,
-        orderDate: parseOrderDate(email.date),
-        price: groq.price ?? extractPrice(lower),
-        itemName: groq.itemName,
-        brand: groq.brand || fallbackBrand,
-        color: groq.color ?? undefined,
-        category: groq.category,
-        season: groq.season,
-        kind: "purchase",
-        imageUrl: email.imageUrl,
-      });
-    } else if (!wasAttempted && !isGeneralRetailer) {
-      // Groq cap reached before this email — regex fallback only for pure fashion/clothing domains
-      results.push({
-        messageId: email.messageId,
-        retailer: DOMAIN_TO_BRAND[domain] ?? fallbackBrand,
-        sender: email.from,
-        subject: email.subject,
-        orderDate: parseOrderDate(email.date),
-        price: extractPrice(lower),
-        itemName: guessItemName(email.subject, fallbackBrand),
-        brand: fallbackBrand,
-        category: guessCategory(lower),
-        season: guessSeason(lower),
-        kind: "purchase",
-        imageUrl: email.imageUrl,
-      });
+    const fallbackBrand = DOMAIN_TO_BRAND[domain] ?? domain.split(".")[0];
+    const retailer = DOMAIN_TO_BRAND[domain] ?? fallbackBrand;
+    const schema = email.orderSchema;
+
+    // Groq has confirmed this is a real clothing receipt — if the email also
+    // has structured Schema.org order data, prefer it (often multi-item and
+    // more precise) now that the clothing check has independently passed.
+    if (schema && schema.items.length > 0 && !schema.isReturn) {
+      const schemaRetailer = schema.merchant ?? retailer;
+      const orderDate = parseOrderDate(schema.orderDate ?? email.date);
+      for (const item of schema.items) {
+        const sym = item.currency === "GBP" ? "£" : item.currency === "EUR" ? "€" : "$";
+        results.push({
+          messageId: email.messageId,
+          retailer: schemaRetailer,
+          sender: email.from,
+          subject: email.subject,
+          orderDate,
+          price: item.price ? `${sym}${item.price}` : (groq.price ?? extractPrice(lower)),
+          itemName: item.name,
+          brand: item.brand ?? schemaRetailer,
+          category: guessCategory(`${item.name} ${item.brand ?? ""}`),
+          season: guessSeason(`${item.name} ${item.brand ?? ""}`),
+          kind: "purchase",
+          imageUrl: email.imageUrl,
+        });
+      }
+      continue;
     }
-    // wasAttempted && !groq → Groq rejected it (ad / non-clothing) → drop silently
-    // isGeneralRetailer && !groq → always drop
+
+    results.push({
+      messageId: email.messageId,
+      retailer,
+      sender: email.from,
+      subject: email.subject,
+      orderDate: parseOrderDate(email.date),
+      price: groq.price ?? extractPrice(lower),
+      itemName: groq.itemName,
+      brand: groq.brand || fallbackBrand,
+      color: groq.color ?? undefined,
+      category: groq.category,
+      season: groq.season,
+      kind: "purchase",
+      imageUrl: email.imageUrl,
+    });
   }
 
   return results;

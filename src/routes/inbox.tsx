@@ -4,8 +4,8 @@ import { PageShell } from "@/components/vesti/PageShell";
 import { useReceipts, receipts, type DetectedReceipt } from "@/lib/vesti/receipts";
 import { CATEGORIES, SEASONS, type Category, type Season, closet } from "@/lib/vesti/store";
 import { Check, X, Mail, RefreshCw, Sparkles, ArrowLeft, CalendarClock, BellRing, Camera, Pencil, Zap } from "lucide-react";
-import { connectGmail, fetchReceiptEmails, fetchEmailProductImage, getStoredToken, clearToken } from "@/lib/vesti/gmail-sync";
-import { parseReceiptEmails, type ParsedReceipt } from "@/lib/api/gmail.functions";
+import { connectGmail, fetchReceiptEmails, fetchEmailProductImage, getStoredToken, clearToken, type FetchProgress } from "@/lib/vesti/gmail-sync";
+import { parseReceiptEmails, type ParsedReceipt, type GroqProgress } from "@/lib/api/gmail.functions";
 import { gptImageStudio } from "@/lib/vesti/supabase-storage";
 import { addCredits } from "@/lib/vesti/credits";
 import shopBag from "@/assets/shop-bag-camel.jpg";
@@ -595,6 +595,8 @@ function InboxPage() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [gmailProgress, setGmailProgress] = useState<FetchProgress | null>(null);
+  const [groqProgress, setGroqProgress] = useState<GroqProgress | null>(null);
   const [scannedEmails, setScannedEmails] = useState<{ subject: string; from: string; messageId: string; parsedData?: ParsedReceipt }[]>([]);
   const [showScanned, setShowScanned] = useState(false);
   const [showImportTable, setShowImportTable] = useState(true);
@@ -635,6 +637,8 @@ function InboxPage() {
     } finally {
       setSyncing(false);
       setSyncStatus(null);
+      setGmailProgress(null);
+      setGroqProgress(null);
     }
   };
 
@@ -658,14 +662,34 @@ function InboxPage() {
     } finally {
       setSyncing(false);
       setSyncStatus(null);
+      setGmailProgress(null);
+      setGroqProgress(null);
     }
   };
 
   const runSync = async (accessToken: string) => {
+    setGmailProgress(null);
+    setGroqProgress(null);
     setSyncStatus("Searching Gmail Shopping + fashion brand emails…");
-    const emails = await fetchReceiptEmails(accessToken);
-    setSyncStatus(`Found ${emails.length} email${emails.length === 1 ? "" : "s"} · asking AI to identify clothing receipts…`);
-    const parsed = await parseReceiptEmails(emails);
+    const emails = await fetchReceiptEmails(accessToken, (p) => {
+      setGmailProgress(p);
+      setSyncStatus(
+        p.stage === "searching"
+          ? "Searching Gmail Shopping + fashion brand emails…"
+          : `Fetching email ${p.done} of ${p.total}…`,
+      );
+    });
+    setGmailProgress(null);
+    setSyncStatus(`Found ${emails.length} email${emails.length === 1 ? "" : "s"} · verifying clothing receipts with AI…`);
+    const parsed = await parseReceiptEmails(emails, (p) => {
+      setGroqProgress(p);
+      setSyncStatus(
+        p.waitingSeconds
+          ? `Rate limit reached — resuming in ${p.waitingSeconds}s (${p.done}/${p.total} checked)…`
+          : `Verifying clothing receipts with AI — ${p.done}/${p.total}…`,
+      );
+    });
+    setGroqProgress(null);
     const parsedByMsgId = new Map(parsed.map((p) => [p.messageId, p]));
     setScannedEmails(emails.map((e) => ({
       subject: e.subject || "(no subject)",
@@ -772,9 +796,64 @@ function InboxPage() {
           </button>
         )}
         {syncing && syncStatus && (
-          <div className="mt-3 flex items-center gap-2 px-1">
-            <RefreshCw className="size-3 animate-spin text-mint shrink-0" strokeWidth={1.5} />
-            <p className="text-[10px] text-muted-foreground tracking-wide">{syncStatus}</p>
+          <div className="mt-3 px-1 space-y-2.5">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="size-3 animate-spin text-mint shrink-0" strokeWidth={1.5} />
+              <p className="text-[10px] text-muted-foreground tracking-wide">{syncStatus}</p>
+            </div>
+
+            {/* Stage 1: Gmail fetch */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                  1. Gmail
+                </span>
+                {gmailProgress?.stage === "fetching" && gmailProgress.total > 0 && (
+                  <span className="text-[9px] text-muted-foreground">
+                    {gmailProgress.done}/{gmailProgress.total}
+                  </span>
+                )}
+              </div>
+              <div className="h-1.5 rounded-full bg-mint-soft/40 overflow-hidden">
+                <div
+                  className={`h-full bg-mint transition-all duration-300 ${
+                    gmailProgress?.stage === "searching" ? "w-1/6 animate-pulse" : ""
+                  }`}
+                  style={
+                    gmailProgress?.stage === "fetching" && gmailProgress.total > 0
+                      ? { width: `${Math.round((gmailProgress.done / gmailProgress.total) * 100)}%` }
+                      : gmailProgress
+                        ? undefined
+                        : { width: groqProgress ? "100%" : "0%" }
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Stage 2: Groq clothing verification */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                  2. AI verification{groqProgress?.waitingSeconds ? ` · waiting ${groqProgress.waitingSeconds}s` : ""}
+                </span>
+                {groqProgress && groqProgress.total > 0 && (
+                  <span className="text-[9px] text-muted-foreground">
+                    {groqProgress.done}/{groqProgress.total}
+                  </span>
+                )}
+              </div>
+              <div className="h-1.5 rounded-full bg-mint-soft/40 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${groqProgress?.waitingSeconds ? "bg-mauve animate-pulse" : "bg-mint"}`}
+                  style={{
+                    width:
+                      groqProgress && groqProgress.total > 0
+                        ? `${Math.round((groqProgress.done / groqProgress.total) * 100)}%`
+                        : "0%",
+                  }}
+                />
+              </div>
+            </div>
           </div>
         )}
         {!syncing && syncResult && (
