@@ -17,6 +17,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase";
 import { hasSeenTutorial } from "@/lib/vesti/tutorial";
+import { useProfile } from "@/lib/vesti/profile";
 
 // Capture the URL hash synchronously at module-load time, before TanStack
 // Router (or any other effect) can normalise / clear it.
@@ -132,10 +133,12 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function AuthGuard() {
   const { user, loading } = useAuth();
+  const { profile } = useProfile();
   const router = useRouter();
   const pathname = router.state.location.pathname;
   const isPublicPage = pathname === "/login" || pathname === "/reset-password";
   const isTutorialPage = pathname === "/tutorial";
+  const isOnboardingPage = pathname === "/onboarding";
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -165,8 +168,24 @@ function AuthGuard() {
     // First run after sign-in: show the 3-screen tour before the main app.
     if (user && !isPublicPage && !isTutorialPage && !hasSeenTutorial()) {
       void router.navigate({ to: "/tutorial" });
+      return;
     }
-  }, [mounted, user, loading, isPublicPage, isTutorialPage, router]);
+
+    // Style profile isn't done yet: send them to the onboarding wizard.
+    // Runs on every sign-in (not just right after signup) until they
+    // actually complete it — matches the "Begin onboarding" prompt already
+    // shown on the profile page.
+    if (
+      user &&
+      !isPublicPage &&
+      !isTutorialPage &&
+      !isOnboardingPage &&
+      hasSeenTutorial() &&
+      !profile.completedAt
+    ) {
+      void router.navigate({ to: "/onboarding" });
+    }
+  }, [mounted, user, loading, isPublicPage, isTutorialPage, isOnboardingPage, profile.completedAt, router]);
 
   // During SSR and initial hydration, render Outlet to match server HTML.
   // Only show spinner after client mounts to avoid React #418 mismatch.

@@ -1,6 +1,6 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { EMPTY_PROFILE, profileStore, useProfile, type BodyShape, type SkinTone, type UserProfile } from "@/lib/vesti/profile";
 import { FitModel, FitModelStage, SHAPE_OPTIONS, SKIN_TONES } from "@/components/vesti/FitModel";
 import { getApiUrl } from "@/lib/api-base";
@@ -99,8 +99,9 @@ function OnboardingPage() {
   })();
 
   const onBack = () => {
-    if (step === 1) navigate({ to: "/" });
-    else setStep((s) => s - 1);
+    // Style profile is required before reaching the app, so there's no "back
+    // out to the closet" from step 1 anymore — just no-op.
+    if (step > 1) setStep((s) => s - 1);
   };
 
   const onContinue = () => {
@@ -120,17 +121,10 @@ function OnboardingPage() {
     <div className="min-h-screen bg-cream text-ink flex flex-col">
       {/* Progress */}
       <header className="px-8 pt-10 pb-6">
-        <div className="flex items-center justify-between mb-3">
+        <div className="mb-3">
           <p className="text-[10px] uppercase tracking-[0.32em] text-mauve">
             {step <= TOTAL_STEPS ? `Step ${step} of ${TOTAL_STEPS}` : "Complete"}
           </p>
-          <Link
-            to="/"
-            aria-label="Exit onboarding"
-            className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.22em] text-ink/50 hover:text-ink transition py-2 -mr-2 px-2"
-          >
-            Skip <X className="size-3" strokeWidth={1.5} />
-          </Link>
         </div>
 
         <div className="h-[2px] w-full bg-ink/10 overflow-hidden">
@@ -478,14 +472,18 @@ function OnboardingPage() {
       {step <= TOTAL_STEPS && (
         <footer className="fixed bottom-0 inset-x-0 bg-cream border-t border-ink/10 px-6 py-5">
           <div className="max-w-[640px] mx-auto flex items-center justify-between gap-4">
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.28em] text-ink/70 hover:text-ink transition"
-            >
-              <ArrowLeft className="size-3.5" strokeWidth={1.5} />
-              Back
-            </button>
+            {step > 1 ? (
+              <button
+                type="button"
+                onClick={onBack}
+                className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.28em] text-ink/70 hover:text-ink transition"
+              >
+                <ArrowLeft className="size-3.5" strokeWidth={1.5} />
+                Back
+              </button>
+            ) : (
+              <span />
+            )}
             <button
               type="button"
               onClick={onContinue}
