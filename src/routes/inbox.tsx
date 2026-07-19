@@ -597,6 +597,7 @@ function InboxPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [scannedEmails, setScannedEmails] = useState<{ subject: string; from: string; messageId: string; parsedData?: ParsedReceipt }[]>([]);
   const [showScanned, setShowScanned] = useState(false);
+  const [showImportTable, setShowImportTable] = useState(true);
   const [connectedEmail, setConnectedEmail] = useState<string | null>(
     () => getStoredToken()?.email ?? null,
   );
@@ -616,6 +617,9 @@ function InboxPage() {
 
   const pending = all.filter((r) => r.status === "pending");
   const handled = all.filter((r) => r.status !== "pending");
+  const importTitle = lastSyncedAt
+    ? new Date(lastSyncedAt).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
+    : null;
 
   const handleConnect = async () => {
     setSyncError(null);
@@ -812,6 +816,107 @@ function InboxPage() {
       </section>
 
       <section className="px-8 pt-10 pb-16">
+        {pending.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.22em] text-mint mb-1">
+                  {importTitle ? `Import — ${importTitle}` : "Import"}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {pending.length} item{pending.length === 1 ? "" : "s"} to review
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowImportTable((v) => !v)}
+                className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground transition"
+              >
+                {showImportTable ? "Hide" : "Show"}
+              </button>
+            </div>
+
+            {showImportTable && (
+              <div className="rounded-2xl border border-border overflow-hidden overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-border bg-card/50">
+                      <th className="w-12 py-2 pl-3" />
+                      <th className="py-2 pr-3 text-[9px] uppercase tracking-[0.18em] text-muted-foreground font-medium">
+                        Item
+                      </th>
+                      <th className="py-2 pr-3 text-[9px] uppercase tracking-[0.18em] text-muted-foreground font-medium">
+                        Category
+                      </th>
+                      <th className="py-2 pr-3 text-[9px] uppercase tracking-[0.18em] text-muted-foreground font-medium text-right">
+                        Price
+                      </th>
+                      <th className="w-16 py-2 pr-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pending.map((r) => (
+                      <tr key={r.id} className="border-b border-border/60 last:border-0 hover:bg-card/40 transition">
+                        <td className="py-2 pl-3">
+                          <button
+                            type="button"
+                            onClick={() => setReviewReceipt(r)}
+                            aria-label={`Edit ${r.itemName}`}
+                            className="block size-9 rounded-lg overflow-hidden bg-muted shrink-0"
+                          >
+                            <img
+                              src={r.image}
+                              alt=""
+                              className="w-full h-full object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).src = shopBag; }}
+                            />
+                          </button>
+                        </td>
+                        <td className="py-2 pr-3 min-w-0">
+                          <button type="button" onClick={() => setReviewReceipt(r)} className="text-left">
+                            <p className="text-[11px] uppercase tracking-[0.05em] truncate max-w-[160px]">
+                              {r.itemName}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground truncate max-w-[160px]">
+                              {[r.brand, r.retailer].filter(Boolean).join(" · ")}
+                            </p>
+                          </button>
+                        </td>
+                        <td className="py-2 pr-3 text-[10px] text-muted-foreground whitespace-nowrap">
+                          {r.category}
+                        </td>
+                        <td className="py-2 pr-3 text-[10px] text-foreground/80 text-right whitespace-nowrap">
+                          {r.price ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => receipts.deny(r.id)}
+                              aria-label={`Not mine — ${r.itemName}`}
+                              className="size-6 rounded-full border border-border grid place-items-center text-foreground/50 hover:text-destructive hover:border-destructive/50 transition"
+                            >
+                              <X className="size-3" strokeWidth={1.75} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => confirmReceipt(r)}
+                              aria-label={`Add to closet — ${r.itemName}`}
+                              className="size-6 rounded-full bg-foreground text-background grid place-items-center transition active:scale-90"
+                            >
+                              <Check className="size-3" strokeWidth={1.75} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         <SwipeCardDeck
           pending={pending}
           onConfirm={confirmReceipt}
