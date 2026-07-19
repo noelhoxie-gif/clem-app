@@ -1,0 +1,14 @@
+node_modules
+dist
+.output
+.DS_Store
+.env
+.env.local
+*.log
+
+# Capacitor native projects
+ios/
+android/
+.vercel
+.env*
+!.env.example

@@ -1,0 +1,154 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Clem design system — Editorial European: cream, ink, mauve, chocolate, blush.
+ * Cormorant Garamond italic for display, Jost for body.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
+  --font-sans: "Jost", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+
+  --color-ink: var(--ink);
+  --color-mint: var(--mint);
+  --color-mint-soft: var(--mint-soft);
+  --color-sage: var(--sage);
+  --color-gold: var(--gold);
+  --color-cream: var(--cream);
+  --color-mauve: var(--mint);            /* legacy alias → now sage khaki */
+  --color-blush: #D4A0A0;
+  --color-chocolate: #2A2118;            /* legacy alias → now warm dark */
+  --color-copper: #C4845A;
+  --color-taupe: #C4B5A5;
+  --color-sand: #E8DFCF;
+  --color-warm-dark: #2A2118;
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.375rem;
+
+  /* Brand — Quiet luxury: aged marble, blush silk, warm stone, pressed botanicals. */
+  --background: #F2EDE6;                /* warm cream — canvas */
+  --foreground: #1C1C1C;                /* near-black ink */
+  --ink: #1C1C1C;
+  --cream: #F2EDE6;
+  --mint: #8B8B6B;                      /* sage khaki — signature accent (alias: mauve) */
+  --mint-soft: #F5EAE4;                 /* pale blush — card / modal surface */
+  --sage: #8B8B6B;                      /* sage khaki */
+  --gold: #C4A55A;                      /* burnished gold — premium moments only */
+
+  --card: #F5EAE4;                      /* pale blush for cards on cream */
+  --card-foreground: var(--foreground);
+  --popover: #F5EAE4;
+  --popover-foreground: var(--foreground);
+
+  --primary: #1C1C1C;                   /* warm ink primary buttons */
+  --primary-foreground: #F2EDE6;
+  --secondary: var(--mint-soft);
+  --secondary-foreground: var(--foreground);
+
+  --muted: #E8DFCF;
+  --muted-foreground: #2A2118;          /* warm dark for supporting labels */
+  --accent: #8B8B6B;                    /* sage khaki accent */
+  --accent-foreground: #F2EDE6;
+
+  --destructive: oklch(0.5 0.18 25);
+  --destructive-foreground: #F2EDE6;
+  --border: rgba(196, 181, 165, 0.6);   /* taupe hairline */
+  --input: rgba(196, 181, 165, 0.8);
+  --ring: #8B8B6B;
+
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html, body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 200px 200px;
+  }
+  .font-serif { font-family: var(--font-serif); }
+  .font-sans  { font-family: var(--font-sans); }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
+
+  /* Native WebView: prevent accidental text selection on tap */
+  html.capacitor-native body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+  }
+
+  @keyframes vesti-rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .animate-rise { animation: vesti-rise 0.55s cubic-bezier(0.16,1,0.3,1) both; }
+}

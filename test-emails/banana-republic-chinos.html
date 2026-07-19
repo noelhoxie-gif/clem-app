@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Order Confirmation · Banana Republic #BR-7741093</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #f4f2ee; font-family: 'Georgia', serif; font-size: 14px; color: #2a2a2a; }
+    .wrapper { max-width: 580px; margin: 40px auto; background: #fff; }
+    .header { background: #1a1a1a; padding: 30px 44px; display: flex; align-items: center; justify-content: space-between; }
+    .brand { color: #fff; font-size: 18px; letter-spacing: 6px; text-transform: uppercase; font-weight: normal; }
+    .header-tag { color: #c8b89a; font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase; }
+    .hero { background: #f0ece6; padding: 36px 44px; border-bottom: 1px solid #e2ddd8; }
+    .hero-label { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: #9a8c7e; margin-bottom: 10px; font-family: Arial, sans-serif; }
+    .hero-title { font-size: 26px; color: #1a1a1a; font-style: italic; line-height: 1.3; }
+    .hero-sub { font-size: 12px; color: #7a7065; font-family: Arial, sans-serif; margin-top: 8px; letter-spacing: 0.5px; }
+    .body { padding: 36px 44px; }
+    .section-label { font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase; color: #9a8c7e; font-family: Arial, sans-serif; margin-bottom: 14px; }
+    .item-box { border: 1px solid #e2ddd8; padding: 20px; display: flex; gap: 18px; margin-bottom: 20px; }
+    .swatch { width: 80px; height: 100px; flex-shrink: 0; object-fit: cover; display: block; border-radius: 2px; }
+    .item-name { font-size: 16px; color: #1a1a1a; margin-bottom: 6px; }
+    .item-detail { font-size: 12px; color: #7a7065; line-height: 1.8; font-family: Arial, sans-serif; }
+    .item-price { font-size: 15px; color: #1a1a1a; margin-top: 10px; font-family: Arial, sans-serif; font-weight: bold; }
+    .badge { display: inline-block; background: #e8f4ec; color: #3d7a52; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; padding: 3px 8px; font-family: Arial, sans-serif; margin-top: 6px; }
+    .divider { border: none; border-top: 1px solid #e2ddd8; margin: 24px 0; }
+    .total-row { display: flex; justify-content: space-between; font-size: 12px; color: #7a7065; font-family: Arial, sans-serif; margin-bottom: 8px; }
+    .total-row.grand { font-size: 14px; color: #1a1a1a; font-weight: bold; border-top: 1px solid #1a1a1a; padding-top: 10px; margin-top: 4px; }
+    .ship-block { background: #f9f7f4; padding: 16px 20px; font-size: 12px; font-family: Arial, sans-serif; color: #5a5248; line-height: 1.8; }
+    .cta { text-align: center; margin: 32px 0; }
+    .cta a { display: inline-block; background: #1a1a1a; color: #fff; text-decoration: none; padding: 14px 40px; font-size: 10px; letter-spacing: 3px; text-transform: uppercase; font-family: Arial, sans-serif; }
+    .footer { background: #1a1a1a; padding: 24px 44px; font-size: 10px; color: #777; font-family: Arial, sans-serif; text-align: center; line-height: 2; letter-spacing: 0.5px; }
+    .footer a { color: #9a8c7e; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <p class="brand">Banana Republic</p>
+      <p class="header-tag">Order Confirmation</p>
+    </div>
+
+    <div class="hero">
+      <p class="hero-label">Thank you for your purchase</p>
+      <p class="hero-title">Your order has been received.</p>
+      <p class="hero-sub">Order #BR-7741093 · June 27, 2026</p>
+    </div>
+
+    <div class="body">
+      <p class="section-label">Items Ordered</p>
+
+      <div class="item-box">
+        <img class="swatch" src="https://content.gapinc.com/b/0057/258/805/cn57258805.png?width=600" alt="Slim Fit Stretch Chino - Warm Khaki" />
+        <div>
+          <p class="item-name">Slim Fit Stretch Chino Pants</p>
+          <p class="item-detail">
+            Color: Warm Khaki<br/>
+            Size: 33W × 30L<br/>
+            Fit: Slim<br/>
+            Material: Stretch Cotton Blend<br/>
+            Qty: 1
+          </p>
+          <p class="item-price">$89.50</p>
+          <span class="badge">20% off applied</span>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="total-row"><span>Subtotal (1 item)</span><span>$89.50</span></div>
+      <div class="total-row"><span>Promotion — BRCARD20</span><span>−$17.90</span></div>
+      <div class="total-row"><span>Standard Shipping</span><span>Free</span></div>
+      <div class="total-row"><span>Estimated Tax</span><span>$5.72</span></div>
+      <div class="total-row grand"><span>Order Total</span><span>$77.32</span></div>
+
+      <div class="divider"></div>
+
+      <p class="section-label">Shipping Address</p>
+      <div class="ship-block">
+        Daniel Hoxie<br/>
+        412 West 18th Street, Apt 5B<br/>
+        New York, NY 10011
+      </div>
+
+      <p class="section-label" style="margin-top:22px;">Estimated Delivery</p>
+      <p style="font-size:13px;color:#5a5248;font-family:Arial,sans-serif;">
+        July 1–3, 2026 · FedEx Home Delivery
+      </p>
+
+      <div class="cta">
+        <a href="#">Manage Your Order</a>
+      </div>
+
+      <p style="font-size:11px;font-family:Arial,sans-serif;color:#9a8c7e;text-align:center;line-height:1.8;">
+        Questions? Call 1-888-906-1345 or visit <strong>bananarepublic.com/help</strong>
+      </p>
+    </div>
+
+    <div class="footer">
+      Banana Republic LLC · Two Folsom Street, San Francisco, CA 94105<br/>
+      <a href="#">Unsubscribe</a> &nbsp;·&nbsp; <a href="#">Privacy Policy</a> &nbsp;·&nbsp; <a href="#">Terms of Use</a>
+    </div>
+  </div>
+</body>
+</html>
+<!--
+  TEST METADATA (copy these when sending to Gmail):
+  From: orders@bananarepublic.com
+  Subject: Order Confirmation · Banana Republic #BR-7741093
+  Key snippet: Slim Fit Stretch Chino Pants · Warm Khaki · 33W×30L · $77.32
+-->
