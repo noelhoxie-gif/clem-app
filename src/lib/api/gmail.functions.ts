@@ -5,7 +5,11 @@ const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
 const GROQ_MODEL = "llama-3.1-8b-instant";
 const GROQ_MAX_CALLS = 30; // free-tier safety cap (30 req/min)
 
-interface GroqItem {
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_MAX_CALLS = 15; // free-tier safety cap (15 req/min)
+
+interface VerifiedItem {
   isClothing: boolean;
   itemName: string;
   brand: string;
@@ -13,6 +17,17 @@ interface GroqItem {
   category: Category;
   season: Season;
   price: string | null;
+}
+
+function buildVerificationPrompt(email: EmailMeta): string {
+  const text = [
+    `Subject: ${email.subject}`,
+    `From: ${email.from}`,
+    `Snippet: ${email.snippet}`,
+    email.bodyText ? `Body: ${email.bodyText.slice(0, 400)}` : "",
+  ].filter(Boolean).join("\n");
+
+  return `You are a clothing receipt parser. Extract data from this email. If it is NOT a clothing purchase receipt, return {"isClothing":false}.\n\nReturn JSON: {"isClothing":boolean,"itemName":string,"brand":string,"color":string|null,"category":"Tops"|"Bottoms"|"Dresses"|"Outerwear"|"Sweaters"|"Shoes"|"Accessories","season":"Warm"|"Cold"|"Year-round","price":string|null}\n\n${text}`;
 }
 
 /**
@@ -23,22 +38,12 @@ interface GroqItem {
  * returns null when Groq successfully responded that this isn't a clothing
  * purchase.
  */
-async function groqParseEmail(email: EmailMeta): Promise<GroqItem | null> {
+async function groqParseEmail(email: EmailMeta): Promise<VerifiedItem | null> {
   if (!GROQ_API_KEY) throw new Error("VITE_GROQ_API_KEY is not configured");
-  const text = [
-    `Subject: ${email.subject}`,
-    `From: ${email.from}`,
-    `Snippet: ${email.snippet}`,
-    email.bodyText ? `Body: ${email.bodyText.slice(0, 400)}` : "",
-  ].filter(Boolean).join("\n");
-
   const body = JSON.stringify({
     model: GROQ_MODEL,
     response_format: { type: "json_object" },
-    messages: [{
-      role: "user",
-      content: `You are a clothing receipt parser. Extract data from this email. If it is NOT a clothing purchase receipt, return {"isClothing":false}.\n\nReturn JSON: {"isClothing":boolean,"itemName":string,"brand":string,"color":string|null,"category":"Tops"|"Bottoms"|"Dresses"|"Outerwear"|"Sweaters"|"Shoes"|"Accessories","season":"Warm"|"Cold"|"Year-round","price":string|null}\n\n${text}`,
-    }],
+    messages: [{ role: "user", content: buildVerificationPrompt(email) }],
   });
 
   let lastError: unknown;
@@ -56,13 +61,51 @@ async function groqParseEmail(email: EmailMeta): Promise<GroqItem | null> {
       }
       if (!res.ok) throw new Error(`Groq ${res.status}`);
       const d = await res.json() as { choices: [{ message: { content: string } }] };
-      const parsed = JSON.parse(d.choices[0].message.content) as GroqItem;
+      const parsed = JSON.parse(d.choices[0].message.content) as VerifiedItem;
       return parsed.isClothing ? parsed : null;
     } catch (e) {
       lastError = e;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Groq call failed");
+}
+
+/**
+ * Same contract as groqParseEmail, backed by Gemini instead — lets the queue
+ * be split across two independent providers (and two independent per-minute
+ * rate limits) so it drains roughly twice as fast when both keys are set.
+ */
+async function geminiParseEmail(email: EmailMeta): Promise<VerifiedItem | null> {
+  if (!GEMINI_API_KEY) throw new Error("VITE_GEMINI_API_KEY is not configured");
+  const body = JSON.stringify({
+    contents: [{ role: "user", parts: [{ text: buildVerificationPrompt(email) }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 220, responseMimeType: "application/json" },
+  });
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body },
+      );
+      if (res.status === 429 || res.status >= 500) {
+        lastError = new Error(`Gemini ${res.status}`);
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 1000));
+        continue;
+      }
+      if (!res.ok) throw new Error(`Gemini ${res.status}`);
+      const d = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const raw = d.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+      const parsed = JSON.parse(
+        raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim(),
+      ) as VerifiedItem;
+      return parsed.isClothing ? parsed : null;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Gemini call failed");
 }
 
 export interface ParsedReceipt {
@@ -224,26 +267,31 @@ function guessItemName(subject: string, brand: string): string {
   return `${brand} order`;
 }
 
-// ── Main parser — two-step: cheap pre-filter, then mandatory Groq gate ───────
+// ── Main parser — two-step: cheap pre-filter, then mandatory AI gate ────────
 //
 // Step 1 (below, in the collection loop): eliminate obvious non-candidates
 // cheaply (skip-listed domains, returns, and — only for completely unknown
 // domains — a keyword pre-filter) without spending an AI call on them.
 //
-// Step 2 (processGroqQueue): every remaining candidate, regardless of domain
-// reputation, must be individually confirmed as an actual clothing purchase
-// by Groq. There is no schema.org "trusted domain" bypass and no keyword-only
-// fallback — a retailer selling clothing alongside home goods, beauty, or
-// gift cards no longer gets every item auto-accepted just because the email
-// carries structured order markup. Schema.org data is still used (for its
-// richer multi-item detail) once Groq has independently confirmed the email
-// is a real clothing receipt.
+// Step 2 (processVerificationQueue): every remaining candidate, regardless of
+// domain reputation, must be individually confirmed as an actual clothing
+// purchase by Groq or Gemini. There is no schema.org "trusted domain" bypass
+// and no keyword-only fallback — a retailer selling clothing alongside home
+// goods, beauty, or gift cards no longer gets every item auto-accepted just
+// because the email carries structured order markup. Schema.org data is
+// still used (for its richer multi-item detail) once verification has
+// independently confirmed the email is a real clothing receipt. When a
+// Gemini key is configured, the queue is split across both providers running
+// concurrently — each paced against its own per-minute rate limit — so it
+// drains roughly twice as fast as a single provider alone.
 
 export interface GroqProgress {
   done: number;
   total: number;
-  /** Set while paused, waiting out the free-tier per-minute rate limit. */
+  /** Set while at least one lane is paused, waiting out its free-tier per-minute rate limit. */
   waitingSeconds?: number;
+  /** Present when Gemini is running as a second lane alongside Groq — per-provider counters for the status line. */
+  byProvider?: { groq: number; gemini: number };
 }
 
 interface QueuedEmail {
@@ -252,18 +300,18 @@ interface QueuedEmail {
   lower: string;
 }
 
-/** Builds the ParsedReceipt(s) for a single email once Groq has confirmed it's
- * a real clothing purchase. A single email can yield multiple receipts when
- * Schema.org order markup lists several items. */
-function toParsedReceipts(q: QueuedEmail, groq: GroqItem): ParsedReceipt[] {
+/** Builds the ParsedReceipt(s) for a single email once it's been confirmed as
+ * a real clothing purchase (by either provider). A single email can yield
+ * multiple receipts when Schema.org order markup lists several items. */
+function toParsedReceipts(q: QueuedEmail, verified: VerifiedItem): ParsedReceipt[] {
   const { email, domain, lower } = q;
   const fallbackBrand = DOMAIN_TO_BRAND[domain] ?? domain.split(".")[0];
   const retailer = DOMAIN_TO_BRAND[domain] ?? fallbackBrand;
   const schema = email.orderSchema;
 
-  // Groq has confirmed this is a real clothing receipt — if the email also
-  // has structured Schema.org order data, prefer it (often multi-item and
-  // more precise) now that the clothing check has independently passed.
+  // Confirmed as a real clothing receipt — if the email also has structured
+  // Schema.org order data, prefer it (often multi-item and more precise) now
+  // that the clothing check has independently passed.
   if (schema && schema.items.length > 0 && !schema.isReturn) {
     const schemaRetailer = schema.merchant ?? retailer;
     const orderDate = parseOrderDate(schema.orderDate ?? email.date);
@@ -275,7 +323,7 @@ function toParsedReceipts(q: QueuedEmail, groq: GroqItem): ParsedReceipt[] {
         sender: email.from,
         subject: email.subject,
         orderDate,
-        price: item.price ? `${sym}${item.price}` : (groq.price ?? extractPrice(lower)),
+        price: item.price ? `${sym}${item.price}` : (verified.price ?? extractPrice(lower)),
         itemName: item.name,
         brand: item.brand ?? schemaRetailer,
         category: guessCategory(`${item.name} ${item.brand ?? ""}`),
@@ -293,46 +341,54 @@ function toParsedReceipts(q: QueuedEmail, groq: GroqItem): ParsedReceipt[] {
       sender: email.from,
       subject: email.subject,
       orderDate: parseOrderDate(email.date),
-      price: groq.price ?? extractPrice(lower),
-      itemName: groq.itemName,
-      brand: groq.brand || fallbackBrand,
-      color: groq.color ?? undefined,
-      category: groq.category,
-      season: groq.season,
+      price: verified.price ?? extractPrice(lower),
+      itemName: verified.itemName,
+      brand: verified.brand || fallbackBrand,
+      color: verified.color ?? undefined,
+      category: verified.category,
+      season: verified.season,
       kind: "purchase" as const,
       imageUrl: email.imageUrl,
     },
   ];
 }
 
-/** Processes the full Groq queue, pacing calls to stay within the free-tier
- * 30 requests/minute limit. Rather than capping at 30 and dropping or
- * guessing at the rest, it waits out the remainder of the rolling minute and
- * keeps going until every queued email has been checked. As soon as each
- * batch comes back, any confirmed receipts are handed to `onReceipts`
- * immediately rather than being held until the whole queue finishes. */
-async function processGroqQueue(
-  queue: QueuedEmail[],
-  onProgress?: (p: GroqProgress) => void,
-  onReceipts?: (newlyConfirmed: ParsedReceipt[]) => void,
-): Promise<ParsedReceipt[]> {
-  const allResults: ParsedReceipt[] = [];
+interface LaneConfig {
+  provider: "groq" | "gemini";
+  call: (email: EmailMeta) => Promise<VerifiedItem | null>;
+  maxCallsPerMinute: number;
+  batchSize: number;
+}
+
+/** Runs one provider's slice of the queue, pacing calls to stay within that
+ * provider's own free-tier per-minute limit. Rather than capping and
+ * dropping or guessing at the rest, it waits out the remainder of the
+ * rolling minute and keeps going until its slice is done. Each batch's
+ * confirmed receipts are reported immediately via callbacks so two lanes
+ * can stream results in interleaved, as soon as each is ready. */
+async function runVerificationLane(
+  items: QueuedEmail[],
+  lane: LaneConfig,
+  onBatchDone: (provider: "groq" | "gemini", batchSize: number, receipts: ParsedReceipt[]) => void,
+  onWaiting: (provider: "groq" | "gemini", waitingSeconds: number | undefined) => void,
+): Promise<void> {
   let windowStart = Date.now();
   let windowCalls = 0;
 
-  for (let i = 0; i < queue.length; i += 5) {
-    if (windowCalls + 5 > GROQ_MAX_CALLS) {
+  for (let i = 0; i < items.length; i += lane.batchSize) {
+    if (windowCalls + lane.batchSize > lane.maxCallsPerMinute) {
       const waitMs = Math.max(0, 60_000 - (Date.now() - windowStart));
       if (waitMs > 0) {
-        onProgress?.({ done: i, total: queue.length, waitingSeconds: Math.ceil(waitMs / 1000) });
+        onWaiting(lane.provider, Math.ceil(waitMs / 1000));
         await new Promise((r) => setTimeout(r, waitMs));
       }
       windowStart = Date.now();
       windowCalls = 0;
     }
+    onWaiting(lane.provider, undefined);
 
-    const batch = queue.slice(i, i + 5);
-    const settled = await Promise.allSettled(batch.map((q) => groqParseEmail(q.email)));
+    const batch = items.slice(i, i + lane.batchSize);
+    const settled = await Promise.allSettled(batch.map((q) => lane.call(q.email)));
     windowCalls += batch.length;
 
     const batchReceipts: ParsedReceipt[] = [];
@@ -340,18 +396,78 @@ async function processGroqQueue(
       if (s.status === "fulfilled" && s.value) {
         batchReceipts.push(...toParsedReceipts(batch[j], s.value));
       }
-      // rejected (call failed after retries) or fulfilled with null (Groq
+      // rejected (call failed after retries) or fulfilled with null (provider
       // said not-clothing) both simply mean this email produces no result.
     });
 
-    if (batchReceipts.length > 0) {
-      allResults.push(...batchReceipts);
-      onReceipts?.(batchReceipts);
-    }
-    onProgress?.({ done: Math.min(i + 5, queue.length), total: queue.length });
-    if (i + 5 < queue.length) await new Promise((r) => setTimeout(r, 1100));
+    onBatchDone(lane.provider, batch.length, batchReceipts);
+    if (i + lane.batchSize < items.length) await new Promise((r) => setTimeout(r, 1100));
+  }
+}
+
+/** Verifies the entire queue. When a Gemini key is configured, the queue is
+ * split (alternating) across two independent lanes — Groq and Gemini — that
+ * run concurrently, each paced against its own per-minute rate limit. Since
+ * the limits are independent, running both at once processes the combined
+ * queue roughly twice as fast as a single provider. Falls back to a single
+ * Groq lane when no Gemini key is set. */
+async function processVerificationQueue(
+  queue: QueuedEmail[],
+  onProgress?: (p: GroqProgress) => void,
+  onReceipts?: (newlyConfirmed: ParsedReceipt[]) => void,
+): Promise<ParsedReceipt[]> {
+  const dualThreaded = !!GEMINI_API_KEY;
+  const groqItems: QueuedEmail[] = [];
+  const geminiItems: QueuedEmail[] = [];
+  queue.forEach((q, i) => {
+    if (dualThreaded && i % 2 === 1) geminiItems.push(q);
+    else groqItems.push(q);
+  });
+
+  const total = queue.length;
+  const allResults: ParsedReceipt[] = [];
+  const done = { groq: 0, gemini: 0 };
+  const waiting: { groq?: number; gemini?: number } = {};
+
+  function reportProgress() {
+    const waitingSeconds = waiting.groq ?? waiting.gemini;
+    onProgress?.({
+      done: done.groq + done.gemini,
+      total,
+      waitingSeconds,
+      byProvider: dualThreaded ? { ...done } : undefined,
+    });
   }
 
+  const lanes: Promise<void>[] = [
+    runVerificationLane(
+      groqItems,
+      { provider: "groq", call: groqParseEmail, maxCallsPerMinute: GROQ_MAX_CALLS, batchSize: 5 },
+      (_provider, batchSize, receipts) => {
+        done.groq += batchSize;
+        if (receipts.length > 0) { allResults.push(...receipts); onReceipts?.(receipts); }
+        reportProgress();
+      },
+      (_provider, s) => { waiting.groq = s; reportProgress(); },
+    ),
+  ];
+
+  if (dualThreaded) {
+    lanes.push(
+      runVerificationLane(
+        geminiItems,
+        { provider: "gemini", call: geminiParseEmail, maxCallsPerMinute: GEMINI_MAX_CALLS, batchSize: 3 },
+        (_provider, batchSize, receipts) => {
+          done.gemini += batchSize;
+          if (receipts.length > 0) { allResults.push(...receipts); onReceipts?.(receipts); }
+          reportProgress();
+        },
+        (_provider, s) => { waiting.gemini = s; reportProgress(); },
+      ),
+    );
+  }
+
+  await Promise.all(lanes);
   return allResults;
 }
 
@@ -393,7 +509,8 @@ export async function parseReceiptEmails(
     groqQueue.push({ email, domain, lower });
   }
 
-  // ── Step 2: every candidate must pass Groq — paced, not capped, and
+  // ── Step 2: every candidate must pass verification — paced, not capped,
+  // dual-threaded across Groq + Gemini when both keys are configured, and
   // streamed back via onReceipts as each batch is confirmed ──
-  return processGroqQueue(groqQueue, onProgress, onReceipts);
+  return processVerificationQueue(groqQueue, onProgress, onReceipts);
 }

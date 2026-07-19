@@ -695,10 +695,13 @@ function InboxPage() {
       emails,
       (p) => {
         setGroqProgress(p);
+        const providerNote = p.byProvider
+          ? ` (Groq ${p.byProvider.groq} · Gemini ${p.byProvider.gemini})`
+          : "";
         setSyncStatus(
           p.waitingSeconds
             ? `Rate limit reached — resuming in ${p.waitingSeconds}s (${p.done}/${p.total} checked)…`
-            : `Verifying clothing receipts with AI — ${p.done}/${p.total}…`,
+            : `Verifying clothing receipts with AI — ${p.done}/${p.total}${providerNote}…`,
         );
       },
       (newlyConfirmed) => {
@@ -844,7 +847,7 @@ function InboxPage() {
               </div>
             </div>
 
-            {/* Stage 2: Groq clothing verification */}
+            {/* Stage 2: AI clothing verification (dual-threaded across Groq + Gemini when both are configured) */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -867,6 +870,11 @@ function InboxPage() {
                   }}
                 />
               </div>
+              {groqProgress?.byProvider && (
+                <p className="mt-1 text-[9px] text-muted-foreground/70 tracking-wide">
+                  Dual-threaded — Groq {groqProgress.byProvider.groq} · Gemini {groqProgress.byProvider.gemini}
+                </p>
+              )}
             </div>
           </div>
         )}
