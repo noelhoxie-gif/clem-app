@@ -213,7 +213,7 @@ export interface TodayLook {
   note: string;
 }
 
-const NOTES = [
+const FORMAL_NOTES = [
   "Layered for ease — slip the outer off the moment the room warms.",
   "Anchored in neutrals so the shoes can do the talking.",
   "Soft volume on top, clean line down — your most flattering proportion.",
@@ -223,33 +223,61 @@ const NOTES = [
   "A classic foundation with one piece that makes it feel like yours.",
 ];
 
+const FUN_NOTES = [
+  "A playful statement piece, grounded by just enough polish.",
+  "Let the texture and shine do the talking tonight.",
+  "A little more color, a little more movement — made for going out.",
+  "The fun is in the finish: bold shoes and jewelry pull it together.",
+];
+
+type StyleMood = "Formal" | "Fun";
+
+function moodFor(moment: MomentTag): StyleMood {
+  return moment === "Morning" || moment === "Midday" ? "Formal" : "Fun";
+}
+
+function noteFor(mood: StyleMood, seed: number): string {
+  const notes = mood === "Formal" ? FORMAL_NOTES : FUN_NOTES;
+  return notes[((seed % notes.length) + notes.length) % notes.length];
+}
+
 export function buildTodayLook(
   items: Item[],
   pack: Season | undefined,
   occasion: OccasionTag,
   seed: number,
+  moment: MomentTag = momentFor(),
 ): TodayLook | null {
   if (items.length === 0) return null;
+  const mood = moodFor(moment);
 
   // Season filter — keep "Year-round" plus matching pack
   const seasonOk = (it: Item) =>
     !pack || pack === "Year-round" || it.season === pack || it.season === "Year-round";
 
-  // Occasion bias: rough keyword scoring on name/brand/color
+  // Occasion and time-of-day bias: rough keyword scoring on name/brand/color
   const bias = (it: Item): number => {
     const t = `${it.name} ${it.brand ?? ""} ${it.color ?? ""}`.toLowerCase();
+    let score = 0;
+    if (mood === "Formal") {
+      if (/(blazer|trouser|tailored|button|poplin|blouse|topcoat|trench|structured|pointed|midi|loafer|flat)/.test(t)) score += 4;
+      if (/(sequin|halter|crop|mini|stiletto)/.test(t)) score -= 4;
+    } else {
+      if (/(sequin|satin|silk|slip|halter|crop|mini|leather|heel|stiletto|gold|chain|hoop)/.test(t)) score += 4;
+      if (/(button|poplin|trouser|topcoat)/.test(t)) score -= 2;
+    }
     if (occasion === "Work") {
-      if (/(blazer|trouser|button|poplin|tailored|knit|topcoat|sneaker|loafer|flat)/.test(t)) return 2;
-      if (/(sequin|crochet|halter|mini)/.test(t)) return -2;
+      if (/(blazer|trouser|button|poplin|tailored|knit|topcoat|sneaker|loafer|flat)/.test(t)) score += 2;
+      if (/(sequin|crochet|halter|mini)/.test(t)) score -= 2;
     } else if (occasion === "Event") {
-      if (/(sequin|silk|slip|heel|stiletto|mini|sandal|necklace|pearl|gold)/.test(t)) return 2;
-      if (/(sneaker|denim|jean)/.test(t)) return -1;
+      if (/(sequin|silk|slip|heel|stiletto|mini|sandal|necklace|pearl|gold)/.test(t)) score += 2;
+      if (/(sneaker|denim|jean)/.test(t)) score -= 1;
     } else {
       // Weekend
-      if (/(denim|jean|sneaker|knit|sweater|cashmere|skirt|trench|hat|scarf)/.test(t)) return 2;
-      if (/(stiletto|sequin)/.test(t)) return -1;
+      if (/(denim|jean|sneaker|knit|sweater|cashmere|skirt|trench|hat|scarf)/.test(t)) score += 2;
+      if (/(stiletto|sequin)/.test(t)) score -= 1;
     }
-    return 0;
+    return score;
   };
 
   const pickOne = (cat: Item["category"], salt: number): Item | undefined => {
@@ -270,7 +298,7 @@ export function buildTodayLook(
     shoes: pickOne("Shoes", 2),
     accessory: pickOne("Accessories", 3),
     outer: wantsOuter ? pickOne("Outerwear", 4) : undefined,
-    note: NOTES[((seed % NOTES.length) + NOTES.length) % NOTES.length],
+    note: noteFor(mood, seed),
   };
   if (!look.top && !look.bottom) return null;
   return look;
@@ -286,22 +314,36 @@ export function pickLookFromLookbook(
   pack: Season | undefined,
   occasion: OccasionTag,
   seed: number,
+  moment: MomentTag = momentFor(),
 ): TodayLook | null {
   const looks = buildOutfits(items, seed);
-  if (looks.length === 0) return buildTodayLook(items, pack, occasion, seed);
+  if (looks.length === 0) return buildTodayLook(items, pack, occasion, seed, moment);
+  const mood = moodFor(moment);
 
-  // Bias the lookbook entry toward occasion by title/vibe keywords.
+  // Score both the lookbook vibe and its actual pieces so time of day changes the recommendation.
   const scored = looks.map((o) => {
-    const t = `${o.title} ${o.vibe}`.toLowerCase();
+    const pieces = [o.outer, o.top, o.bottom, o.shoes, o.accessory]
+      .filter(Boolean)
+      .map((it) => `${it!.name} ${it!.brand ?? ""} ${it!.color ?? ""}`)
+      .join(" ");
+    const t = `${o.title} ${o.vibe} ${pieces}`.toLowerCase();
     let s = 0;
     if (occasion === "Event" && /(evening|paris|gallery|cocktail|night)/.test(t)) s += 3;
     if (occasion === "Work" && /(studio|composition|quiet|tailored)/.test(t)) s += 3;
     if (occasion === "Weekend" && /(sunday|coastal|lunch|bookshop)/.test(t)) s += 3;
+    if (mood === "Formal") {
+      if (/(polished|studio|composition|quiet|blazer|trouser|tailored|button|poplin|blouse|topcoat|trench|structured|pointed|midi|loafer|flat)/.test(t)) s += 5;
+      if (/(playful|sequin|halter|crop|mini|stiletto)/.test(t)) s -= 5;
+    } else {
+      if (/(playful|evening|paris|gallery|night|sequin|satin|silk|slip|halter|crop|mini|leather|heel|stiletto|gold|chain|hoop)/.test(t)) s += 5;
+      if (/(button|poplin|trouser|topcoat)/.test(t)) s -= 2;
+    }
     return { o, s };
   }).sort((a, b) => b.s - a.s);
 
-  const chosen = scored[seed % scored.length].o;
-  const note = NOTES[((seed % NOTES.length) + NOTES.length) % NOTES.length];
+  const bestScore = scored[0].s;
+  const best = scored.filter(({ s }) => s === bestScore);
+  const chosen = best[((seed % best.length) + best.length) % best.length].o;
   const wantsOuter = pack !== "Warm";
   return {
     top: chosen.top,
@@ -309,7 +351,7 @@ export function pickLookFromLookbook(
     shoes: chosen.shoes,
     accessory: chosen.accessory,
     outer: wantsOuter ? chosen.outer : undefined,
-    note,
+    note: noteFor(mood, seed),
   };
 }
 

@@ -11,11 +11,11 @@ export interface Outfit {
 }
 
 export const VIBES = [
-  { title: "Morning Composition", vibe: "Soft, easy, beautifully understated." },
-  { title: "Evening in Paris", vibe: "A cohesive look for a gallery opening." },
+  { title: "Morning Composition", vibe: "Polished, tailored, and ready for the day." },
+  { title: "Evening in Paris", vibe: "Playful shine for dinner, dancing, or a gallery opening." },
   { title: "Sunday Bookshop", vibe: "Layered neutrals with a touch of warmth." },
   { title: "Coastal Lunch", vibe: "Breezy textures, sand-friendly footwear." },
-  { title: "Studio Day", vibe: "Quiet luxury, all-day comfortable." },
+  { title: "Studio Day", vibe: "Quiet polish, all-day comfortable." },
 ];
 
 export function buildOutfits(items: Item[], seedNum = 0): Outfit[] {

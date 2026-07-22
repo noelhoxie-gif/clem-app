@@ -110,8 +110,8 @@ function MorningPage() {
   const blurb = useMemo(() => momentBlurb(moment, rushed), [moment, rushed]);
 
   const baseLook: TodayLook | null = useMemo(
-    () => pickLookFromLookbook(items, weather?.pack, occasion, seed),
-    [items, weather?.pack, occasion, seed],
+    () => pickLookFromLookbook(items, weather?.pack, occasion, seed, moment),
+    [items, weather?.pack, occasion, seed, moment],
   );
 
   // Per-slot user overrides on top of the suggested look

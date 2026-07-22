@@ -9,11 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TutorialRouteImport } from './routes/tutorial'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as ItemItemIdRouteImport } from './routes/item.$itemId'
 import { Route as WishlistRouteImport } from './routes/wishlist'
+import { Route as TutorialRouteImport } from './routes/tutorial'
 import { Route as TrendsRouteImport } from './routes/trends'
+import { Route as SaveRouteImport } from './routes/save'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as OutfitsRouteImport } from './routes/outfits'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
@@ -27,23 +27,34 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as FoldersIndexRouteImport } from './routes/folders.index'
 import { Route as ShareDepartingRouteImport } from './routes/share.departing'
 import { Route as ShareShareIdRouteImport } from './routes/share.$shareId'
+import { Route as ItemItemIdRouteImport } from './routes/item.$itemId'
 import { Route as FoldersFolderIdRouteImport } from './routes/folders.$folderId'
 import { Route as ApiColorAnalysisRouteImport } from './routes/api/color-analysis'
 import { Route as ShareFolderFolderIdRouteImport } from './routes/share.folder.$folderId'
 
-const TutorialRoute = TutorialRouteImport.update({
-  id: '/tutorial',
-  path: '/tutorial',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const WishlistRoute = WishlistRouteImport.update({
   id: '/wishlist',
   path: '/wishlist',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TutorialRoute = TutorialRouteImport.update({
+  id: '/tutorial',
+  path: '/tutorial',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TrendsRoute = TrendsRouteImport.update({
   id: '/trends',
   path: '/trends',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SaveRoute = SaveRouteImport.update({
+  id: '/save',
+  path: '/save',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileRoute = ProfileRouteImport.update({
@@ -64,16 +75,6 @@ const OnboardingRoute = OnboardingRouteImport.update({
 const MorningRoute = MorningRouteImport.update({
   id: '/morning',
   path: '/morning',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ItemItemIdRoute = ItemItemIdRouteImport.update({
-  id: '/item/$itemId',
-  path: '/item/$itemId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -121,6 +122,11 @@ const ShareShareIdRoute = ShareShareIdRouteImport.update({
   path: '/share/$shareId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ItemItemIdRoute = ItemItemIdRouteImport.update({
+  id: '/item/$itemId',
+  path: '/item/$itemId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FoldersFolderIdRoute = FoldersFolderIdRouteImport.update({
   id: '/folders/$folderId',
   path: '/folders/$folderId',
@@ -142,7 +148,6 @@ export interface FileRoutesByFullPath {
   '/add': typeof AddRoute
   '/before-you-buy': typeof BeforeYouBuyRoute
   '/inbox': typeof InboxRoute
-  '/item/$itemId': typeof ItemItemIdRoute
   '/lent': typeof LentRoute
   '/login': typeof LoginRoute
   '/morning': typeof MorningRoute
@@ -150,11 +155,13 @@ export interface FileRoutesByFullPath {
   '/outfits': typeof OutfitsRoute
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/save': typeof SaveRoute
   '/trends': typeof TrendsRoute
   '/tutorial': typeof TutorialRoute
   '/wishlist': typeof WishlistRoute
   '/api/color-analysis': typeof ApiColorAnalysisRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
+  '/item/$itemId': typeof ItemItemIdRoute
   '/share/$shareId': typeof ShareShareIdRoute
   '/share/departing': typeof ShareDepartingRoute
   '/folders/': typeof FoldersIndexRoute
@@ -165,7 +172,6 @@ export interface FileRoutesByTo {
   '/add': typeof AddRoute
   '/before-you-buy': typeof BeforeYouBuyRoute
   '/inbox': typeof InboxRoute
-  '/item/$itemId': typeof ItemItemIdRoute
   '/lent': typeof LentRoute
   '/login': typeof LoginRoute
   '/morning': typeof MorningRoute
@@ -173,11 +179,13 @@ export interface FileRoutesByTo {
   '/outfits': typeof OutfitsRoute
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/save': typeof SaveRoute
   '/trends': typeof TrendsRoute
   '/tutorial': typeof TutorialRoute
   '/wishlist': typeof WishlistRoute
   '/api/color-analysis': typeof ApiColorAnalysisRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
+  '/item/$itemId': typeof ItemItemIdRoute
   '/share/$shareId': typeof ShareShareIdRoute
   '/share/departing': typeof ShareDepartingRoute
   '/folders': typeof FoldersIndexRoute
@@ -189,7 +197,6 @@ export interface FileRoutesById {
   '/add': typeof AddRoute
   '/before-you-buy': typeof BeforeYouBuyRoute
   '/inbox': typeof InboxRoute
-  '/item/$itemId': typeof ItemItemIdRoute
   '/lent': typeof LentRoute
   '/login': typeof LoginRoute
   '/morning': typeof MorningRoute
@@ -197,11 +204,13 @@ export interface FileRoutesById {
   '/outfits': typeof OutfitsRoute
   '/profile': typeof ProfileRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/save': typeof SaveRoute
   '/trends': typeof TrendsRoute
   '/tutorial': typeof TutorialRoute
   '/wishlist': typeof WishlistRoute
   '/api/color-analysis': typeof ApiColorAnalysisRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
+  '/item/$itemId': typeof ItemItemIdRoute
   '/share/$shareId': typeof ShareShareIdRoute
   '/share/departing': typeof ShareDepartingRoute
   '/folders/': typeof FoldersIndexRoute
@@ -214,7 +223,6 @@ export interface FileRouteTypes {
     | '/add'
     | '/before-you-buy'
     | '/inbox'
-    | '/item/$itemId'
     | '/lent'
     | '/login'
     | '/morning'
@@ -222,11 +230,13 @@ export interface FileRouteTypes {
     | '/outfits'
     | '/profile'
     | '/reset-password'
+    | '/save'
     | '/trends'
     | '/tutorial'
     | '/wishlist'
     | '/api/color-analysis'
     | '/folders/$folderId'
+    | '/item/$itemId'
     | '/share/$shareId'
     | '/share/departing'
     | '/folders/'
@@ -237,7 +247,6 @@ export interface FileRouteTypes {
     | '/add'
     | '/before-you-buy'
     | '/inbox'
-    | '/item/$itemId'
     | '/lent'
     | '/login'
     | '/morning'
@@ -245,11 +254,13 @@ export interface FileRouteTypes {
     | '/outfits'
     | '/profile'
     | '/reset-password'
+    | '/save'
     | '/trends'
     | '/tutorial'
     | '/wishlist'
     | '/api/color-analysis'
     | '/folders/$folderId'
+    | '/item/$itemId'
     | '/share/$shareId'
     | '/share/departing'
     | '/folders'
@@ -260,7 +271,6 @@ export interface FileRouteTypes {
     | '/add'
     | '/before-you-buy'
     | '/inbox'
-    | '/item/$itemId'
     | '/lent'
     | '/login'
     | '/morning'
@@ -268,11 +278,13 @@ export interface FileRouteTypes {
     | '/outfits'
     | '/profile'
     | '/reset-password'
+    | '/save'
     | '/trends'
     | '/tutorial'
     | '/wishlist'
     | '/api/color-analysis'
     | '/folders/$folderId'
+    | '/item/$itemId'
     | '/share/$shareId'
     | '/share/departing'
     | '/folders/'
@@ -284,7 +296,6 @@ export interface RootRouteChildren {
   AddRoute: typeof AddRoute
   BeforeYouBuyRoute: typeof BeforeYouBuyRoute
   InboxRoute: typeof InboxRoute
-  ItemItemIdRoute: typeof ItemItemIdRoute
   LentRoute: typeof LentRoute
   LoginRoute: typeof LoginRoute
   MorningRoute: typeof MorningRoute
@@ -292,11 +303,13 @@ export interface RootRouteChildren {
   OutfitsRoute: typeof OutfitsRoute
   ProfileRoute: typeof ProfileRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  SaveRoute: typeof SaveRoute
   TrendsRoute: typeof TrendsRoute
   TutorialRoute: typeof TutorialRoute
   WishlistRoute: typeof WishlistRoute
   ApiColorAnalysisRoute: typeof ApiColorAnalysisRoute
   FoldersFolderIdRoute: typeof FoldersFolderIdRoute
+  ItemItemIdRoute: typeof ItemItemIdRoute
   ShareShareIdRoute: typeof ShareShareIdRoute
   ShareDepartingRoute: typeof ShareDepartingRoute
   FoldersIndexRoute: typeof FoldersIndexRoute
@@ -305,13 +318,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/tutorial': {
-      id: '/tutorial'
-      path: '/tutorial'
-      fullPath: '/tutorial'
-      preLoaderRoute: typeof TutorialRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/wishlist': {
       id: '/wishlist'
       path: '/wishlist'
@@ -319,11 +325,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WishlistRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tutorial': {
+      id: '/tutorial'
+      path: '/tutorial'
+      fullPath: '/tutorial'
+      preLoaderRoute: typeof TutorialRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/trends': {
       id: '/trends'
       path: '/trends'
       fullPath: '/trends'
       preLoaderRoute: typeof TrendsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/save': {
+      id: '/save'
+      path: '/save'
+      fullPath: '/save'
+      preLoaderRoute: typeof SaveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile': {
@@ -389,20 +416,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AddRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/item/$itemId': {
-      id: '/item/$itemId'
-      path: '/item/$itemId'
-      fullPath: '/item/$itemId'
-      preLoaderRoute: typeof ItemItemIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -429,6 +442,13 @@ declare module '@tanstack/react-router' {
       path: '/share/$shareId'
       fullPath: '/share/$shareId'
       preLoaderRoute: typeof ShareShareIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/item/$itemId': {
+      id: '/item/$itemId'
+      path: '/item/$itemId'
+      fullPath: '/item/$itemId'
+      preLoaderRoute: typeof ItemItemIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/folders/$folderId': {
@@ -460,7 +480,6 @@ const rootRouteChildren: RootRouteChildren = {
   AddRoute: AddRoute,
   BeforeYouBuyRoute: BeforeYouBuyRoute,
   InboxRoute: InboxRoute,
-  ItemItemIdRoute: ItemItemIdRoute,
   LentRoute: LentRoute,
   LoginRoute: LoginRoute,
   MorningRoute: MorningRoute,
@@ -468,11 +487,13 @@ const rootRouteChildren: RootRouteChildren = {
   OutfitsRoute: OutfitsRoute,
   ProfileRoute: ProfileRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  SaveRoute: SaveRoute,
   TrendsRoute: TrendsRoute,
   TutorialRoute: TutorialRoute,
   WishlistRoute: WishlistRoute,
   ApiColorAnalysisRoute: ApiColorAnalysisRoute,
   FoldersFolderIdRoute: FoldersFolderIdRoute,
+  ItemItemIdRoute: ItemItemIdRoute,
   ShareShareIdRoute: ShareShareIdRoute,
   ShareDepartingRoute: ShareDepartingRoute,
   FoldersIndexRoute: FoldersIndexRoute,
