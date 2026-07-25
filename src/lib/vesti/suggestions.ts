@@ -15,7 +15,7 @@ export interface ShopItem {
   id: string;
   name: string;
   brand: string;
-  retailer: "Nordstrom" | "Net-a-Porter" | "Mytheresa" | "SSENSE";
+  retailer: string;
   category: Category;
   price: string;
   url: string;
@@ -179,21 +179,50 @@ interface Look {
   accessory?: Item;
 }
 
-export function pickPairings(look: Look, max = 2): ShopItem[] {
+export interface PairingPrefs {
+  colors?: string[];
+  brands?: string[];
+  styles?: string[];
+  avoidColors?: string;
+}
+
+export function pickPairings(
+  look: Look,
+  max = 2,
+  catalog: ShopItem[] = SHOP_CATALOG,
+  prefs?: PairingPrefs,
+): ShopItem[] {
   const pieces = [look.outer, look.top, look.bottom, look.shoes, look.accessory].filter(
     Boolean,
   ) as Item[];
   if (pieces.length === 0) return [];
 
   const lookColors = pieces.map((p) => (p.color ?? "").toLowerCase()).filter(Boolean);
+  const profileColors = (prefs?.colors ?? []).map((c) => c.toLowerCase()).filter(Boolean);
+  const profileBrands = (prefs?.brands ?? []).map((b) => b.toLowerCase()).filter(Boolean);
+  const profileStyles = (prefs?.styles ?? []).map((s) => s.toLowerCase()).filter(Boolean);
+  const avoid = (prefs?.avoidColors ?? "").toLowerCase();
   const seasons = new Set(pieces.map((p) => p.season));
   const filledSlots = new Set(pieces.map((p) => p.category));
 
-  const scored = SHOP_CATALOG.map((s) => {
-    let score = 0;
-    // Color affinity
-    const matches = s.palette.filter((c) => lookColors.includes(c)).length;
-    score += matches * 3;
+  const scored = catalog.map((s) => {
+    let score = 1; // every candidate in the pool is eligible
+    const haystack = `${s.name} ${s.brand} ${s.palette.join(" ")}`.toLowerCase();
+    // Color affinity with the look
+    const lookMatches = s.palette.filter((c) => lookColors.includes(c)).length;
+    score += lookMatches * 3;
+    // Color affinity with the wearer's profile palette
+    const profileMatches = s.palette.filter((c) => profileColors.includes(c)).length
+      + profileColors.filter((c) => haystack.includes(c)).length;
+    score += profileMatches * 3;
+    // Preferred brands
+    if (profileBrands.some((b) => s.brand.toLowerCase().includes(b) || b.includes(s.brand.toLowerCase()))) {
+      score += 6;
+    }
+    // Style identity keywords
+    if (profileStyles.some((style) => haystack.includes(style))) score += 2;
+    // Avoid colors the wearer dislikes
+    if (avoid && avoid.split(/[\s,]+/).some((c) => c && haystack.includes(c))) score -= 5;
     // Fills a missing slot in the outfit
     if (!filledSlots.has(s.category)) score += 4;
     // Season fit

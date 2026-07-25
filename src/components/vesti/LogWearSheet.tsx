@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useCloset, type Item } from "@/lib/vesti/store";
 import { wearLog, useWearLog, todayISO } from "@/lib/vesti/wear-log";
@@ -26,7 +26,7 @@ export function LogWearSheet({ open, onClose, initialItemIds = [], initialDate, 
 
   // Reset when opening with new initials
   const initialsKey = initialItemIds.join("|");
-  useMemo(() => {
+  useEffect(() => {
     if (open) {
       setSelected(initialItemIds);
       setDate(initialDate ?? todayISO());
@@ -35,7 +35,7 @@ export function LogWearSheet({ open, onClose, initialItemIds = [], initialDate, 
       setNote("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialsKey]);
+  }, [open, initialsKey, initialDate]);
 
   const selectedItems = items.filter((i) => selected.includes(i.id));
   const knownPeople = wearLog.knownPeople();
@@ -93,16 +93,19 @@ export function LogWearSheet({ open, onClose, initialItemIds = [], initialDate, 
               <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2">
                 Wearing · {selectedItems.length}
               </p>
-              <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-1 px-1">
                 {selectedItems.map((it) => (
                   <button
                     key={it.id}
                     type="button"
                     onClick={() => toggle(it.id)}
-                    className="relative shrink-0 size-16 rounded-lg overflow-hidden border border-border"
+                    className="relative shrink-0 w-24 aspect-[3/4] rounded-xl overflow-hidden border border-border bg-card"
                     aria-label={`Remove ${it.name}`}
                   >
-                    <img src={it.image} alt="" className="w-full h-full object-cover" />
+                    <img src={it.image} alt="" className="w-full h-full object-contain p-1" />
+                    <span className="absolute inset-x-0 bottom-0 bg-background/85 px-1.5 py-1 text-[8px] leading-tight truncate">
+                      {it.name}
+                    </span>
                     <span className="absolute top-0.5 right-0.5 size-4 grid place-items-center rounded-full bg-background/85">
                       <X className="size-2.5" />
                     </span>
@@ -117,7 +120,7 @@ export function LogWearSheet({ open, onClose, initialItemIds = [], initialDate, 
             <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-2">
               {selectedItems.length === 0 ? "Pick pieces" : "Add more"}
             </p>
-            <div className="grid grid-cols-4 gap-2 max-h-56 overflow-y-auto pr-1">
+            <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
               {items.map((it: Item) => {
                 const on = selected.includes(it.id);
                 return (
@@ -125,11 +128,14 @@ export function LogWearSheet({ open, onClose, initialItemIds = [], initialDate, 
                     key={it.id}
                     type="button"
                     onClick={() => toggle(it.id)}
-                    className={`relative aspect-square rounded-lg overflow-hidden border transition ${
+                    className={`relative aspect-[3/4] rounded-lg overflow-hidden border bg-card transition ${
                       on ? "border-foreground ring-2 ring-foreground/30" : "border-border opacity-70"
                     }`}
                   >
-                    <img src={it.image} alt={it.name} className="w-full h-full object-cover" />
+                    <img src={it.image} alt={it.name} className="w-full h-full object-contain p-1" />
+                    <span className="absolute inset-x-0 bottom-0 bg-background/85 px-1 py-0.5 text-[8px] truncate">
+                      {it.name}
+                    </span>
                     {on && (
                       <span className="absolute top-1 right-1 size-4 grid place-items-center rounded-full bg-foreground text-background">
                         <Check className="size-2.5" strokeWidth={2.5} />

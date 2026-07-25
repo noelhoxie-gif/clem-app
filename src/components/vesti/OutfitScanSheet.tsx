@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { ArrowLeft, Camera, Check, RefreshCw, RotateCcw, X, Zap } from "lucide-react";
 import { type Item, closet } from "@/lib/vesti/store";
-import { wearLog, todayISO } from "@/lib/vesti/wear-log";
+import { todayISO } from "@/lib/vesti/wear-log";
 import { scanOutfitPhoto, type ScanMatch, type DetectedGarment } from "@/lib/vesti/outfit-scan";
 import { gptImageStudio, uploadClosetImage } from "@/lib/vesti/supabase-storage";
 
@@ -36,11 +36,12 @@ interface Props {
   open: boolean;
   onClose: () => void;
   items: Item[];
+  onConfirm: (itemIds: string[], date: string) => void;
 }
 
-type Stage = "pick" | "scanning" | "results" | "add-item" | "done";
+type Stage = "pick" | "scanning" | "results" | "add-item";
 
-export function OutfitScanSheet({ open, onClose, items }: Props) {
+export function OutfitScanSheet({ open, onClose, items, onConfirm }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<Stage>("pick");
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
@@ -110,8 +111,9 @@ export function OutfitScanSheet({ open, onClose, items }: Props) {
 
   const onLog = () => {
     if (selected.size === 0) return;
-    wearLog.log({ date, itemIds: [...selected] });
-    setStage("done");
+    const itemIds = [...selected];
+    reset();
+    onConfirm(itemIds, date);
   };
 
   const runStudio = async (detected: DetectedGarment) => {
@@ -157,7 +159,7 @@ export function OutfitScanSheet({ open, onClose, items }: Props) {
     if (blobToUpload) {
       try { imageUrl = await uploadClosetImage(blobToUpload); } catch { /* proceed without */ }
     }
-    closet.addItem({
+    const newItem = closet.addItem({
       name: addName.trim(),
       brand: addBrand.trim() || undefined,
       color: addColor.trim() || undefined,
@@ -166,7 +168,14 @@ export function OutfitScanSheet({ open, onClose, items }: Props) {
       image: imageUrl,
     });
     setAddSaving(false);
-    setMatches((prev) => prev.filter((m) => m.detected !== addTarget));
+    setMatches((prev) =>
+      prev.map((result) =>
+        result.detected === addTarget
+          ? { ...result, match: newItem }
+          : result,
+      ),
+    );
+    setSelected((prev) => new Set([...prev, newItem.id]));
     setStage("results");
     setAddTarget(null);
     setStudioPreview(null);
@@ -254,26 +263,33 @@ export function OutfitScanSheet({ open, onClose, items }: Props) {
               {matched.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-mint">In your closet</p>
-                  {matched.map((m, i) => (
-                    <div key={i} className="flex items-center gap-3 p-3 rounded-2xl border border-mint/25 bg-mint-soft/10">
-                      <img src={m.match!.image} alt={m.match!.name} className="size-12 rounded-xl object-cover shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{m.match!.name}</p>
-                        <p className="text-[10px] text-muted-foreground capitalize">
-                          {m.detected.color} · {m.detected.description}
-                        </p>
-                      </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {matched.map((m, i) => (
                       <button
+                        key={i}
                         type="button"
                         onClick={() => toggle(m.match!.id)}
-                        className={`size-7 rounded-full border grid place-items-center shrink-0 transition active:scale-90 ${
-                          selected.has(m.match!.id) ? "bg-mint border-mint text-white" : "border-border bg-background"
+                        className={`relative text-left rounded-2xl overflow-hidden border bg-card transition active:scale-[0.98] ${
+                          selected.has(m.match!.id) ? "border-mint ring-2 ring-mint/20" : "border-border opacity-65"
                         }`}
                       >
-                        {selected.has(m.match!.id) && <Check className="size-3.5" strokeWidth={2.5} />}
+                        <div className="aspect-[3/4] bg-background">
+                          <img src={m.match!.image} alt={m.match!.name} className="w-full h-full object-contain p-2" />
+                        </div>
+                        <div className="p-2.5">
+                          <p className="text-xs font-medium truncate">{m.match!.name}</p>
+                          <p className="text-[9px] text-muted-foreground capitalize truncate">
+                            {m.detected.color} · {m.detected.description}
+                          </p>
+                        </div>
+                        {selected.has(m.match!.id) && (
+                          <span className="absolute top-2 right-2 size-6 rounded-full bg-mint text-white grid place-items-center">
+                            <Check className="size-3.5" strokeWidth={2.5} />
+                          </span>
+                        )}
                       </button>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -332,7 +348,7 @@ export function OutfitScanSheet({ open, onClose, items }: Props) {
                     disabled={selected.size === 0}
                     className="w-full rounded-full bg-primary text-primary-foreground py-3 text-sm font-medium active:scale-[0.98] transition disabled:opacity-40"
                   >
-                    Log {selected.size} item{selected.size !== 1 ? "s" : ""} as worn
+                    Continue with {selected.size} piece{selected.size !== 1 ? "s" : ""}
                   </button>
                 )}
                 <button type="button" onClick={reset}
@@ -444,26 +460,6 @@ export function OutfitScanSheet({ open, onClose, items }: Props) {
                 className="w-full rounded-full bg-primary text-primary-foreground py-3 text-sm font-medium active:scale-[0.98] transition disabled:opacity-40"
               >
                 {addSaving ? "Adding…" : "Add to closet"}
-              </button>
-            </div>
-          )}
-
-          {/* ── Stage: done ── */}
-          {stage === "done" && (
-            <div className="text-center py-10">
-              <div className="size-16 rounded-full bg-mint/15 grid place-items-center mx-auto mb-5">
-                <Check className="size-7 text-mint" strokeWidth={2} />
-              </div>
-              <p className="font-serif text-2xl tracking-[0.04em]">Logged</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                {selected.size} item{selected.size !== 1 ? "s" : ""} marked as worn on {date}
-              </p>
-              <button
-                type="button"
-                onClick={handleClose}
-                className="mt-8 w-full rounded-full bg-primary text-primary-foreground py-3 text-sm font-medium active:scale-[0.98] transition"
-              >
-                Done
               </button>
             </div>
           )}

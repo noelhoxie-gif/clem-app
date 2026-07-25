@@ -341,11 +341,11 @@ function FolderDetail() {
                     {dayItemsList.length === 0 && !isPickingThis ? (
                       <p className="text-xs text-muted-foreground italic">Tap Add to assign items for this day.</p>
                     ) : (
-                      <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+                      <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-1 px-1">
                         {dayItemsList.map((item) => (
-                          <div key={item.id} className="shrink-0 w-16">
-                            <div className="relative aspect-[3/4] rounded-md overflow-hidden bg-card outline outline-1 -outline-offset-1 outline-black/5">
-                              <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
+                          <div key={item.id} className="shrink-0 w-24">
+                            <div className="relative aspect-[3/4] rounded-xl overflow-hidden bg-background border border-border">
+                              <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-contain p-1.5" />
                               <button
                                 type="button"
                                 onClick={() => closet.toggleItemOnDay(folder.id, date, item.id)}
@@ -355,7 +355,7 @@ function FolderDetail() {
                                 <Check className="size-3" strokeWidth={2.5} />
                               </button>
                             </div>
-                            <p className="text-[9px] mt-1 leading-tight line-clamp-1 text-muted-foreground">{item.name}</p>
+                            <p className="text-[9px] mt-1.5 leading-tight line-clamp-2 text-muted-foreground">{item.name}</p>
                           </div>
                         ))}
                       </div>
@@ -363,7 +363,7 @@ function FolderDetail() {
                     {isPickingThis && (
                       <div className="mt-3 animate-rise">
                         <p className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground mb-2">Tap to assign</p>
-                        <div className="grid grid-cols-4 gap-2 max-h-52 overflow-y-auto pr-1">
+                        <div className="grid grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
                           {items.map((item) => {
                             const isPinned = assignedIds.includes(item.id);
                             return (
@@ -371,11 +371,11 @@ function FolderDetail() {
                                 key={item.id}
                                 type="button"
                                 onClick={() => closet.toggleItemOnDay(folder.id, date, item.id)}
-                                className="relative aspect-[3/4] rounded-md overflow-hidden bg-card outline outline-1 -outline-offset-1 outline-black/5 active:scale-95 transition"
+                                className="relative aspect-[3/4] rounded-xl overflow-hidden bg-background border border-border active:scale-95 transition"
                               >
-                                <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
+                                <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-contain p-1.5" />
                                 {isPinned && (
-                                  <span className="absolute inset-0 bg-foreground/50 grid place-items-center">
+                                  <span className="absolute inset-0 bg-foreground/40 grid place-items-center">
                                     <Check className="size-4 text-background" strokeWidth={2.5} />
                                   </span>
                                 )}
@@ -435,13 +435,13 @@ function FolderDetail() {
                       {all.length === 0 && !isPickingThis ? (
                         <p className="text-xs text-muted-foreground italic">Tap Add to pick items for this {labelText.toLowerCase()}.</p>
                       ) : (
-                        <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+                        <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-1 px-1">
                           {all.map((p) => {
                             const isPinned = pinnedIds.has(p.id);
                             return (
-                              <div key={`${slot}-${p.id}`} className="shrink-0 w-20">
-                                <div className={`relative aspect-[3/4] rounded-md overflow-hidden bg-background outline outline-1 -outline-offset-1 ${isPinned ? "outline-foreground" : "outline-black/5"}`}>
-                                  <img src={p.image} alt={p.name} loading="lazy" className="w-full h-full object-cover" />
+                              <div key={`${slot}-${p.id}`} className="shrink-0 w-24">
+                                <div className={`relative aspect-[3/4] rounded-xl overflow-hidden bg-background border ${isPinned ? "border-foreground" : "border-border"}`}>
+                                  <img src={p.image} alt={p.name} loading="lazy" className="w-full h-full object-contain p-1.5" />
                                   {isPinned ? (
                                     <button
                                       type="button"
@@ -456,7 +456,7 @@ function FolderDetail() {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-[10px] mt-1 leading-tight line-clamp-2">{p.name}</p>
+                                <p className="text-[10px] mt-1.5 leading-tight line-clamp-2">{p.name}</p>
                               </div>
                             );
                           })}
@@ -465,7 +465,7 @@ function FolderDetail() {
                       {isPickingThis && (
                         <div className="mt-3 animate-rise">
                           <p className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground mb-2">Your closet — tap to pin</p>
-                          <div className="grid grid-cols-4 gap-2">
+                          <div className="grid grid-cols-3 gap-2">
                             {items.map((item) => {
                               const isPinned = pinnedIds.has(item.id);
                               return (
@@ -473,11 +473,11 @@ function FolderDetail() {
                                   key={item.id}
                                   type="button"
                                   onClick={() => closet.toggleItemOnDay(folder.id, day.date, item.id, slot)}
-                                  className="relative aspect-[3/4] rounded-md overflow-hidden bg-card outline outline-1 -outline-offset-1 outline-black/5 active:scale-95 transition"
+                                  className="relative aspect-[3/4] rounded-xl overflow-hidden bg-background border border-border active:scale-95 transition"
                                 >
-                                  <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
+                                  <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-contain p-1.5" />
                                   {isPinned && (
-                                    <span className="absolute inset-0 bg-foreground/50 grid place-items-center">
+                                    <span className="absolute inset-0 bg-foreground/40 grid place-items-center">
                                       <Check className="size-4 text-background" strokeWidth={2.5} />
                                     </span>
                                   )}

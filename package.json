@@ -12,6 +12,8 @@
     "serve:backend": "vite dev --host",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "upload:brands": "node scripts/upload-brands.mjs",
+    "upload:brands:dry": "node scripts/upload-brands.mjs --dry-run",
     "cap:sync": "npx cap sync",
     "cap:open:ios": "npx cap open ios",
     "cap:open:android": "npx cap open android",

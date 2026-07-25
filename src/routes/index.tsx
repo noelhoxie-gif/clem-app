@@ -47,7 +47,8 @@ function ClosetHome() {
   const [lend, setLend] = useState<LendingFilter>("all");
   const [tagging, setTagging] = useState<Item | null>(null);
   const [newFolder, setNewFolder] = useState("");
-const [logOpen, setLogOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const [logPrefill, setLogPrefill] = useState<{ itemIds: string[]; date: string } | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [tab, setTab] = useState<ItemStatus>("active");
   const [vaultPrompt, setVaultPrompt] = useState<Item | null>(null);
@@ -258,15 +259,18 @@ const [logOpen, setLogOpen] = useState(false);
               className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] border border-ink/30 px-4 py-2 hover:bg-ink hover:text-cream transition"
             >
               <Camera className="size-3" strokeWidth={1.5} />
-              Scan outfit
+              Scan & log outfit
             </button>
             <button
               type="button"
-              onClick={() => setLogOpen(true)}
+              onClick={() => {
+                setLogPrefill(null);
+                setLogOpen(true);
+              }}
               className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] border border-ink/30 px-4 py-2 hover:bg-ink hover:text-cream transition"
             >
               <Shirt className="size-3" strokeWidth={1.5} />
-              Log outfit
+              Pick outfit manually
             </button>
           </div>
         )}
@@ -843,8 +847,26 @@ const [logOpen, setLogOpen] = useState(false);
           </Link>
         </SheetContent>
       </Sheet>
-      <LogWearSheet open={logOpen} onClose={() => setLogOpen(false)} />
-      <OutfitScanSheet open={scanOpen} onClose={() => setScanOpen(false)} items={items} />
+      <LogWearSheet
+        open={logOpen}
+        onClose={() => {
+          setLogOpen(false);
+          setLogPrefill(null);
+        }}
+        initialItemIds={logPrefill?.itemIds}
+        initialDate={logPrefill?.date}
+        title={logPrefill ? "Confirm what you wore" : undefined}
+      />
+      <OutfitScanSheet
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        items={items}
+        onConfirm={(itemIds, date) => {
+          setScanOpen(false);
+          setLogPrefill({ itemIds, date });
+          setLogOpen(true);
+        }}
+      />
 
       {/* Memory Vault prompt */}
       <Sheet open={!!vaultPrompt} onOpenChange={(o) => !o && setVaultPrompt(null)}>

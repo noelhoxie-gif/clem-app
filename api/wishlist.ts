@@ -77,7 +77,7 @@ export default async function handler(req: any, res: any) {
         body: JSON.stringify({
           contents: [{
             role: "user",
-            parts: [{ text: `Find fashion products to buy for: "${query}". Return a JSON array of up to 8 real purchasable products from actual retailers: [{"url":"<product page URL>","title":"<product name>","brand":"<brand>","description":"<brief description>"}]. Only include items with valid https URLs.` }],
+            parts: [{ text: `Find fashion products to buy for: "${query}". Return a JSON array of up to 8 real purchasable products from actual retailers: [{"url":"<product page URL>","title":"<product name>","brand":"<brand>","price":"<current listed price when available>","description":"<brief description including color and garment type>"}]. Only include items with valid https product-page URLs. Respect the requested budget and avoided colors.` }],
           }],
           tools: [{ googleSearch: {} }],
           generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
@@ -95,7 +95,7 @@ export default async function handler(req: any, res: any) {
       const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]";
       const chunks = json.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
 
-      type Product = { url: string; title: string; brand?: string; description?: string };
+      type Product = { url: string; title: string; brand?: string; price?: string; description?: string };
       let products: Product[] = [];
       try {
         const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -123,6 +123,7 @@ export default async function handler(req: any, res: any) {
               url: p.url,
               title: (p.title || "Product").slice(0, 140),
               brand: p.brand ?? hostBrand(p.url),
+              price: p.price,
               description: (p.description ?? "").slice(0, 200),
               image: ml.data?.image?.url ?? undefined,
             };
@@ -131,6 +132,7 @@ export default async function handler(req: any, res: any) {
               url: p.url,
               title: (p.title || "Product").slice(0, 140),
               brand: p.brand ?? hostBrand(p.url),
+              price: p.price,
               description: (p.description ?? "").slice(0, 200),
             };
           }

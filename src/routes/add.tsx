@@ -1,9 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { PageShell } from "@/components/vesti/PageShell";
+import { ImageWorkingOverlay } from "@/components/vesti/ImageWorkingOverlay";
+import { StudioJobStrip } from "@/components/vesti/StudioJobStrip";
 import { CATEGORIES, SEASONS, type Category, type Season, type DepartingIntent, closet } from "@/lib/vesti/store";
 import { useBrandNames, matchKnownBrand } from "@/lib/vesti/brands";
-import { uploadClosetImage, replaceBackground, flatLayPhoto, smartEditPhoto, gptImageStudio } from "@/lib/vesti/supabase-storage";
+import { uploadClosetImage, replaceBackground, flatLayPhoto, smartEditPhoto } from "@/lib/vesti/supabase-storage";
+import { useStudioQueue } from "@/lib/vesti/use-studio-queue";
 import { useCredits, consumeCredits, addCredits, CREDIT_COSTS } from "@/lib/vesti/credits";
 import { ArrowLeft, Camera, Link2, Sparkles, Wand2, Layers, Wand, Zap } from "lucide-react";
 
@@ -122,7 +125,6 @@ function AddPage() {
   const [flatLayError, setFlatLayError] = useState<string | null>(null);
   const [smartEditing, setSmartEditing] = useState(false);
   const [smartEditError, setSmartEditError] = useState<string | null>(null);
-  const [studioProcessing, setStudioProcessing] = useState(false);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [studioStyle, setStudioStyle] = useState<"studio" | "editorial" | "luxe" | "casual">("studio");
   const [uploading, setUploading] = useState(false);
@@ -136,6 +138,17 @@ function AddPage() {
   const [memoryStory, setMemoryStory] = useState("");
   const [memoryOccasion, setMemoryOccasion] = useState("");
   const [memoryPerson, setMemoryPerson] = useState("");
+  const {
+    jobs: studioJobs,
+    enqueue: enqueueStudio,
+    dismiss: dismissStudioJob,
+    workingCount: studioWorking,
+    queuedCount: studioQueued,
+  } = useStudioQueue((job) => {
+    setRawFile(job.result);
+    setPreview(job.previewUrl);
+  });
+  const studioProcessing = studioWorking + studioQueued > 0;
 
   const onFile = async (file?: File) => {
     if (!file) return;
@@ -207,25 +220,14 @@ function AddPage() {
   };
 
 
-  const onGptStudio = async () => {
+  const onGptStudio = () => {
     if (!rawFile) return;
     if (!consumeCredits(CREDIT_COSTS.gptStudio)) {
       setStudioError("not-enough");
       return;
     }
-    setStudioProcessing(true);
     setStudioError(null);
-    try {
-      const blob = await gptImageStudio(rawFile, category, studioStyle);
-      setRawFile(blob);
-      const reader = new FileReader();
-      reader.onload = () => setPreview(reader.result as string);
-      reader.readAsDataURL(blob);
-    } catch (e) {
-      setStudioError(e instanceof Error ? e.message : "GPT Studio failed");
-    } finally {
-      setStudioProcessing(false);
-    }
+    enqueueStudio({ file: rawFile, category, style: studioStyle });
   };
 
   const onSmartEdit = async () => {
@@ -378,6 +380,7 @@ function AddPage() {
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
+              disabled={studioProcessing}
               className="w-full aspect-[3/4] rounded-2xl border border-dashed border-border bg-mint-soft/20 grid place-items-center text-muted-foreground overflow-hidden relative active:scale-[0.99] transition"
             >
               {preview ? (
@@ -389,6 +392,7 @@ function AddPage() {
                   <p className="text-[10px] mt-1">JPG, PNG, HEIC</p>
                 </div>
               )}
+              <ImageWorkingOverlay working={studioWorking} queued={studioQueued} />
               <input
                 ref={fileRef}
                 type="file"
@@ -441,11 +445,11 @@ function AddPage() {
                   <button
                     type="button"
                     onClick={onGptStudio}
-                    disabled={studioProcessing || cleaningBg || flatLaying || smartEditing}
+                    disabled={cleaningBg || flatLaying || smartEditing}
                     className="inline-flex items-center gap-1.5 rounded-full border border-mint/60 bg-mint-soft/20 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-mint active:scale-95 transition disabled:opacity-50"
                   >
                     <Zap className={`size-3 ${studioProcessing ? "animate-pulse" : ""}`} strokeWidth={1.5} />
-                    {studioProcessing ? "Generating…" : "AI Studio"}
+                    {studioProcessing ? "Queue another" : "AI Studio"}
                   </button>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
@@ -457,6 +461,14 @@ function AddPage() {
                     </button>
                   ))}
                 </div>
+                <StudioJobStrip
+                  jobs={studioJobs}
+                  onSelect={(job) => {
+                    setRawFile(job.result);
+                    setPreview(job.previewUrl);
+                  }}
+                  onDismiss={dismissStudioJob}
+                />
                 {(bgError || flatLayError || smartEditError || studioError) && (() => {
                   const msg = bgError ?? flatLayError ?? smartEditError ?? studioError;
                   const clear = () => { setBgError(null); setFlatLayError(null); setSmartEditError(null); setStudioError(null); };

@@ -445,36 +445,40 @@ function RealWearSection({
                 .map((id) => items.find((i) => i.id === id))
                 .filter((x): x is NonNullable<typeof x> => !!x);
               return (
-                <li key={e.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-card border border-border">
-                  <div className="flex -space-x-2 shrink-0">
-                    {pics.slice(0, 3).map((p) => (
-                      <div key={p.id} className="size-9 rounded-full overflow-hidden border-2 border-background bg-muted">
-                        <img src={p.image} alt="" className="w-full h-full object-cover" />
+                <li key={e.id} className="px-3 py-3 rounded-xl bg-card border border-border">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] uppercase tracking-[0.12em]">
+                        {pics.length} piece{pics.length !== 1 ? "s" : ""}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {e.date}
+                        {e.people.length > 0 && (
+                          <span className="inline-flex items-center gap-1 ml-2">
+                            <Users className="size-2.5" strokeWidth={1.5} />
+                            {e.people.join(", ")}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => wearLog.remove(e.id)}
+                      className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:text-mauve transition"
+                    >
+                      Undo
+                    </button>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar mt-3">
+                    {pics.map((piece) => (
+                      <div key={piece.id} className="shrink-0 w-20">
+                        <div className="aspect-[3/4] rounded-lg overflow-hidden border border-border bg-background">
+                          <img src={piece.image} alt={piece.name} className="w-full h-full object-contain p-1" />
+                        </div>
+                        <p className="text-[9px] mt-1 truncate text-foreground/70">{piece.name}</p>
                       </div>
                     ))}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] uppercase tracking-[0.12em] truncate">
-                      {pics.map((p) => p.name).slice(0, 2).join(" + ")}
-                      {pics.length > 2 && ` +${pics.length - 2}`}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground truncate">
-                      {e.date}
-                      {e.people.length > 0 && (
-                        <span className="inline-flex items-center gap-1 ml-2">
-                          <Users className="size-2.5" strokeWidth={1.5} />
-                          {e.people.join(", ")}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => wearLog.remove(e.id)}
-                    className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:text-mauve transition"
-                  >
-                    Undo
-                  </button>
                 </li>
               );
             })}

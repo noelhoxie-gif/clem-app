@@ -14,11 +14,72 @@ export interface ScanMatch {
   match: Item | null;
 }
 
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+const GEMINI_MODELS = [
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+];
 
 const VALID_CATEGORIES = new Set<string>([
   "Tops", "Bottoms", "Dresses", "Sweaters", "Shoes", "Accessories", "Outerwear",
 ]);
+
+type RawGarment = {
+  category: string;
+  color: string;
+  description: string;
+  box_2d?: [number, number, number, number];
+};
+
+/**
+ * Gemini occasionally truncates JSON mid-string when the photo is busy.
+ * Recover complete garment objects whenever possible instead of hard-failing.
+ */
+function parseGarmentArray(raw: string): RawGarment[] {
+  const cleaned = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  try {
+    const parsed = JSON.parse(cleaned) as unknown;
+    if (Array.isArray(parsed)) return parsed as RawGarment[];
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as { items?: unknown; garments?: unknown };
+      if (Array.isArray(record.items)) return record.items as RawGarment[];
+      if (Array.isArray(record.garments)) return record.garments as RawGarment[];
+    }
+  } catch {
+    // Fall through to salvage mode for truncated arrays.
+  }
+
+  const start = cleaned.indexOf("[");
+  if (start < 0) throw new Error("No JSON array in response");
+  const slice = cleaned.slice(start);
+  const objects: RawGarment[] = [];
+
+  // Pull every complete {...} object that can stand alone as JSON.
+  const objectRe = /\{[^{}]*\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = objectRe.exec(slice))) {
+    try {
+      const obj = JSON.parse(match[0]) as Partial<RawGarment>;
+      if (obj.category && obj.description) {
+        objects.push({
+          category: obj.category,
+          color: obj.color ?? "",
+          description: obj.description,
+          box_2d: obj.box_2d,
+        });
+      }
+    } catch {
+      // Skip incomplete/truncated object fragments.
+    }
+  }
+
+  if (objects.length === 0) throw new Error("Unterminated JSON response");
+  return objects;
+}
 
 async function detectGarments(base64: string, apiKey: string): Promise<DetectedGarment[]> {
   const body = JSON.stringify({
@@ -27,11 +88,11 @@ async function detectGarments(base64: string, apiKey: string): Promise<DetectedG
       parts: [
         { inline_data: { mime_type: "image/jpeg", data: base64 } },
         {
-          text: `Look at this photo of a person wearing clothes. Identify each visible clothing item they are wearing.
+          text: `Look at this photo of a person wearing clothes. Identify up to 8 visible clothing items they are wearing.
 For each item return a JSON array with objects containing:
 - "category": one of exactly: Tops, Bottoms, Dresses, Sweaters, Shoes, Accessories, Outerwear
 - "color": primary color in 1-2 words (e.g. "white", "dark blue", "cream")
-- "description": concise 2-4 word description (e.g. "button-down cotton shirt", "straight leg jeans", "white leather sneakers")
+- "description": concise 2-4 word description without quotes or newlines
 - "box_2d": bounding box of the item as [yMin, xMin, yMax, xMax] with integer values 0-1000
 
 Only include items clearly visible on the person. Do not include background items.
@@ -41,7 +102,7 @@ Output only the JSON array, nothing else.`,
     }],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 4096,
       responseMimeType: "application/json",
     },
   });
@@ -56,15 +117,32 @@ Output only the JSON array, nothing else.`,
     if (res.status !== 429 && res.status < 500) break;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  if (!res!.ok) throw new Error(`Gemini vision error ${res!.status}`);
+  if (!res!.ok) {
+    const err = await res!.json().catch(() => ({})) as { error?: { message?: string } };
+    throw new Error(err.error?.message ?? `Gemini vision error ${res!.status}`);
+  }
 
   const json = await res!.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> };
+      finishReason?: string;
+    }>;
+    error?: { message?: string };
   };
-  const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]";
-  const parsed = JSON.parse(
-    raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim(),
-  ) as Array<{ category: string; color: string; description: string; box_2d?: [number, number, number, number] }>;
+  if (json.error?.message) throw new Error(json.error.message);
+
+  const candidate = json.candidates?.[0];
+  const raw = candidate?.content?.parts?.map((p) => p.text ?? "").join("") ?? "[]";
+  let parsed: RawGarment[];
+  try {
+    parsed = parseGarmentArray(raw);
+  } catch {
+    throw new Error(
+      candidate?.finishReason === "MAX_TOKENS"
+        ? "Scan timed out mid-response — try a clearer, closer photo."
+        : "Couldn't read the outfit from that photo — try again with better lighting.",
+    );
+  }
 
   // Filter out invalid categories and normalize bounding boxes to 0–1 range
   return parsed

@@ -1,9 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { PageShell } from "@/components/vesti/PageShell";
+import { ImageWorkingOverlay } from "@/components/vesti/ImageWorkingOverlay";
+import { StudioJobStrip } from "@/components/vesti/StudioJobStrip";
 import { useCloset, closet, CATEGORIES, SEASONS, type Category, type Season } from "@/lib/vesti/store";
 import { useBrandNames } from "@/lib/vesti/brands";
-import { uploadClosetImage, replaceBackground, gptImageStudio } from "@/lib/vesti/supabase-storage";
+import { uploadClosetImage, replaceBackground } from "@/lib/vesti/supabase-storage";
+import { useStudioQueue } from "@/lib/vesti/use-studio-queue";
 import { addCredits } from "@/lib/vesti/credits";
 import { ArrowLeft, Camera, Trash2, Wand2, Zap } from "lucide-react";
 
@@ -46,7 +49,6 @@ function EditItemPage() {
   const [rawFile, setRawFile] = useState<File | Blob | null>(null);
   const [cleaningBg, setCleaningBg] = useState(false);
   const [bgError, setBgError] = useState<string | null>(null);
-  const [studioProcessing, setStudioProcessing] = useState(false);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [studioStyle, setStudioStyle] = useState<"studio" | "editorial" | "luxe" | "casual">("studio");
   const [saving, setSaving] = useState(false);
@@ -54,6 +56,17 @@ function EditItemPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showBrandSuggestions, setShowBrandSuggestions] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const {
+    jobs: studioJobs,
+    enqueue: enqueueStudio,
+    dismiss: dismissStudioJob,
+    workingCount: studioWorking,
+    queuedCount: studioQueued,
+  } = useStudioQueue((job) => {
+    setRawFile(job.result);
+    setPreview(job.previewUrl);
+  });
+  const studioProcessing = studioWorking + studioQueued > 0;
 
   if (!item) {
     return (
@@ -81,7 +94,9 @@ function EditItemPage() {
     setCleaningBg(true);
     setBgError(null);
     try {
-      const source = rawFile ?? await fetch(item.image).then((r) => r.blob());
+      const source: Blob = rawFile
+        ? rawFile
+        : await fetch(item.image).then((r) => r.blob());
       const blob = await replaceBackground(source);
       setRawFile(blob);
       const reader = new FileReader();
@@ -95,19 +110,14 @@ function EditItemPage() {
   };
 
   const onGptStudio = async () => {
-    setStudioProcessing(true);
     setStudioError(null);
     try {
-      const source = rawFile ?? await fetch(item.image).then((r) => r.blob());
-      const blob = await gptImageStudio(source, category, studioStyle);
-      setRawFile(blob);
-      const reader = new FileReader();
-      reader.onload = () => setPreview(reader.result as string);
-      reader.readAsDataURL(blob);
+      const source: Blob = rawFile
+        ? rawFile
+        : await fetch(item.image).then((r) => r.blob());
+      enqueueStudio({ file: source, category, style: studioStyle });
     } catch (e) {
       setStudioError(e instanceof Error ? e.message : "AI Studio failed");
-    } finally {
-      setStudioProcessing(false);
     }
   };
 
@@ -160,6 +170,7 @@ function EditItemPage() {
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
+          disabled={studioProcessing}
           className="w-full aspect-[3/4] rounded-2xl border border-dashed border-border bg-mint-soft/20 grid place-items-center text-muted-foreground overflow-hidden relative active:scale-[0.99] transition mb-2"
         >
           {preview ? (
@@ -170,6 +181,7 @@ function EditItemPage() {
               <p className="text-sm font-serif tracking-[0.02em]">Tap to replace photo</p>
             </div>
           )}
+          <ImageWorkingOverlay working={studioWorking} queued={studioQueued} />
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
         </button>
 
@@ -187,11 +199,11 @@ function EditItemPage() {
             <button
               type="button"
               onClick={onGptStudio}
-              disabled={studioProcessing || cleaningBg}
+              disabled={cleaningBg}
               className="inline-flex items-center gap-1.5 rounded-full border border-mint/60 bg-mint-soft/20 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-mint active:scale-95 transition disabled:opacity-50"
             >
               <Zap className={`size-3 ${studioProcessing ? "animate-pulse" : ""}`} strokeWidth={1.5} />
-              {studioProcessing ? "Generating…" : "AI Studio"}
+              {studioProcessing ? "Queue another" : "AI Studio"}
             </button>
           </div>
           <div className="flex items-center gap-2 mt-1">
@@ -203,6 +215,14 @@ function EditItemPage() {
               </button>
             ))}
           </div>
+          <StudioJobStrip
+            jobs={studioJobs}
+            onSelect={(job) => {
+              setRawFile(job.result);
+              setPreview(job.previewUrl);
+            }}
+            onDismiss={dismissStudioJob}
+          />
           {(bgError || studioError) && (() => {
             const msg = bgError ?? studioError;
             const clear = () => { setBgError(null); setStudioError(null); };

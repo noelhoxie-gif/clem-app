@@ -110,7 +110,12 @@ function MorningPage() {
   const blurb = useMemo(() => momentBlurb(moment, rushed), [moment, rushed]);
 
   const baseLook: TodayLook | null = useMemo(
-    () => pickLookFromLookbook(items, weather?.pack, occasion, seed, moment),
+    () => {
+      const suggested = pickLookFromLookbook(items, weather?.pack, occasion, seed, moment);
+      if (!suggested) return null;
+      // "Right now" is intentionally a fast three-piece recommendation.
+      return { ...suggested, outer: undefined, accessory: undefined };
+    },
     [items, weather?.pack, occasion, seed, moment],
   );
 
@@ -135,11 +140,9 @@ function MorningPage() {
   const pieces: { item: Item; role: string; slot: Slot }[] = useMemo(() => {
     if (!look) return [];
     const out: { item: Item; role: string; slot: Slot }[] = [];
-    if (look.outer) out.push({ item: look.outer, role: "Layer", slot: "outer" });
     if (look.top) out.push({ item: look.top, role: "Top", slot: "top" });
     if (look.bottom) out.push({ item: look.bottom, role: "Bottom", slot: "bottom" });
     if (look.shoes) out.push({ item: look.shoes, role: "Shoes", slot: "shoes" });
-    if (look.accessory) out.push({ item: look.accessory, role: "Finish", slot: "accessory" });
     return out;
   }, [look]);
 
@@ -316,11 +319,9 @@ function MorningPage() {
                 shape={profile.bodyShape}
                 skinTone={(profile.skinTone || "light") as never}
                 outfit={{
-                  outer: look.outer ?? undefined,
                   top: look.top ?? undefined,
                   bottom: look.bottom ?? undefined,
                   shoes: look.shoes ?? undefined,
-                  accessory: look.accessory ?? undefined,
                 }}
                 onSlotClick={(slot) => setPicker(slot)}
               />

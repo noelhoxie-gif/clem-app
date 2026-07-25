@@ -6,12 +6,23 @@ import { useProfile, type UserProfile } from "@/lib/vesti/profile";
 import { FitModel, FitModelStage } from "@/components/vesti/FitModel";
 import { matchOccasion, type OccasionMatch } from "@/lib/vesti/occasion";
 import { buildOutfits, stylingRationale, type Outfit } from "@/lib/vesti/looks";
-import { pickPairings } from "@/lib/vesti/suggestions";
+import { pickPairings, type ShopItem } from "@/lib/vesti/suggestions";
+import { searchProducts, type ScrapedItem } from "@/lib/api/wishlist.functions";
+import { heartedLooks, outfitSignature, useHeartedLooks } from "@/lib/vesti/hearted-looks";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+  type CarouselApi,
+} from "@/components/ui/carousel";
 import {
   ArrowUpRight,
   BookmarkPlus,
   Check,
   FolderPlus,
+  Heart,
   RefreshCw,
   Search,
   Shuffle,
@@ -20,29 +31,6 @@ import {
 } from "lucide-react";
 
 type AiOutfit = Outfit & { rationale?: string };
-
-async function generateFollowUp(scenario: string): Promise<{ question: string; chips: string[] } | null> {
-  const key = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
-  if (!key) return null;
-  const prompt = `The user wants to style an outfit for: "${scenario}". Ask one short, natural follow-up question to better understand what they need. Return ONLY valid JSON: {"question": "...", "chips": ["option1", "option2", "option3"]} — 2-4 chip options, each under 5 words.`;
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 100, responseMimeType: "application/json" },
-        }),
-      },
-    );
-    if (!res.ok) return null;
-    const json = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-    const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-    return JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()) as { question: string; chips: string[] };
-  } catch { return null; }
-}
 
 function buildProfileContext(profile: UserProfile): string {
   const lines: string[] = [];
@@ -58,10 +46,22 @@ function buildProfileContext(profile: UserProfile): string {
   return lines.length ? `\nAbout this person:\n${lines.map((l) => `- ${l}`).join("\n")}` : "";
 }
 
+function dayOfWeekContext(date = new Date()): { dayName: string; isWeekend: boolean; guidance: string } {
+  const dayName = date.toLocaleDateString("en-US", { weekday: "long" });
+  const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+  return {
+    dayName,
+    isWeekend,
+    guidance: isWeekend
+      ? "Weekend energy — lean playful, expressive, and fun while staying polished. Favor color, texture, statement accessories, and easier silhouettes when they still fit the occasion."
+      : "Weekday energy — lean more polished and formal. Prefer tailored pieces, quieter color stories, and work-ready footwear unless the occasion clearly calls for casual.",
+  };
+}
+
 async function callGeminiStylist(
   scenario: string,
-  followUpQ: string,
-  followUpA: string,
+  location: string,
+  timeOfYear: string,
   items: Item[],
   extraContext?: string,
   weather?: WeatherData | null,
@@ -77,15 +77,22 @@ async function callGeminiStylist(
   const favoritesContext = favorites && favorites.length > 0
     ? `\nFavorite pieces the user loves (prioritize including these where they fit the occasion naturally):\n${favorites.map((i) => `- ${i.name}${i.brand ? ` by ${i.brand}` : ""} (${i.category}${i.color ? `, ${i.color}` : ""})`).join("\n")}`
     : "";
+  const day = dayOfWeekContext();
+  const weatherLine = weather
+    ? `\nCurrent local weather: ${weather.tempF}°F (${weather.tempC}°C), ${weather.condition}. Factor this into layering, outerwear, fabrics, and footwear whenever the occasion is today or near-term in a similar climate.`
+    : "";
   const prompt = `You are Clem, an elegant personal wardrobe stylist with a quiet luxury aesthetic.
 
 The user is styling for: "${scenario}"
-Follow-up — question: "${followUpQ}", their answer: "${followUpA}"${weather ? `\nCurrent weather: ${weather.tempF}°F (${weather.tempC}°C), ${weather.condition}. Factor in the temperature and conditions when choosing pieces — suggest appropriate layering, fabrics, and footwear.` : ""}${profile ? buildProfileContext(profile) : ""}${favoritesContext}${extraContext ? `\nAdditional context from user: "${extraContext}"` : ""}
+Target location: "${location}"
+Time of year or date: "${timeOfYear}"
+Today is ${day.dayName} (${day.isWeekend ? "weekend" : "weekday"}). ${day.guidance}
+Infer the expected climate and season for that location at that time. Choose seasonally appropriate fabrics, layering, outerwear, and footwear.${weatherLine}${profile ? buildProfileContext(profile) : ""}${favoritesContext}${extraContext ? `\nAdditional context from user: "${extraContext}"` : ""}
 
 Their closet:
 ${JSON.stringify(itemList)}
 
-Create up to 3 outfit combinations using items from their closet that suit this occasion.
+Create up to 3 outfit combinations using items from their closet that suit this occasion, weather, and day-of-week tone.
 
 Return ONLY valid JSON:
 {
@@ -94,7 +101,7 @@ Return ONLY valid JSON:
     {
       "title": "Evocative look name (2-4 words)",
       "vibe": "One-line aesthetic description",
-      "rationale": "1-2 sentences on why these pieces work together for this occasion",
+      "rationale": "1-2 sentences on why these pieces work together for this occasion, weather, and day of week",
       "topId": "<item id or null>",
       "bottomId": "<item id or null>",
       "outerId": "<item id or null>",
@@ -113,7 +120,7 @@ Only use IDs from the closet list. Use null if no suitable item exists for that 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 1024, responseMimeType: "application/json" },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048, responseMimeType: "application/json" },
         }),
       },
     );
@@ -208,6 +215,100 @@ function shopUrl(brand: string, name: string): string {
   return `https://www.nordstrom.com/sr?keyword=${q}`;
 }
 
+const PRODUCT_COLORS = [
+  "white", "cream", "ivory", "black", "charcoal", "grey", "gray", "beige",
+  "tan", "camel", "brown", "chocolate", "navy", "blue", "cobalt", "indigo",
+  "green", "sage", "olive", "red", "burgundy", "pink", "rose", "purple",
+  "lavender", "yellow", "gold", "orange", "rust", "silver",
+];
+
+function hasStyleProfile(profile: UserProfile): boolean {
+  return (
+    profile.styleIdentities.length > 0 ||
+    profile.colors.length > 0 ||
+    profile.brands.length > 0 ||
+    profile.budget.length > 0 ||
+    profile.occasions.length > 0
+  );
+}
+
+function buildPersonalizedShopQuery(profile: UserProfile, items: Item[]): string | null {
+  if (!hasStyleProfile(profile)) return null;
+
+  const categories: Category[] = ["Shoes", "Accessories", "Outerwear", "Tops", "Bottoms"];
+  const gaps = categories
+    .map((category) => ({
+      category,
+      count: items.filter((item) => item.category === category).length,
+    }))
+    .sort((a, b) => a.count - b.count)
+    .slice(0, 2)
+    .map(({ category }) => category.toLowerCase());
+
+  // Keep the query short and shoppable so grounded search returns real product pages.
+  return [
+    profile.styleIdentities.slice(0, 2).join(" ") || "modern wardrobe",
+    profile.colors.slice(0, 3).join(" "),
+    profile.brands.slice(0, 3).join(" "),
+    gaps.length ? gaps.join(" and ") : "shoes and accessories",
+    profile.budget[0] ? `${profile.budget[0]} budget` : "",
+    profile.occasions[0] ? `for ${profile.occasions[0]}` : "",
+    profile.avoidColors ? `avoid ${profile.avoidColors}` : "",
+    "buy online",
+  ].filter(Boolean).join(" ");
+}
+
+function inferProductCategory(product: ScrapedItem): Category {
+  const value = `${product.title} ${product.description ?? ""}`.toLowerCase();
+  if (/boot|sneaker|heel|shoe|loafer|sandal|mule|flat|pump/.test(value)) return "Shoes";
+  if (/coat|trench|jacket|blazer|parka|outerwear/.test(value)) return "Outerwear";
+  if (/pant|trouser|jean|skirt|short|legging/.test(value)) return "Bottoms";
+  if (/bag|necklace|earring|belt|scarf|hat|jewel|ring|sunglass/.test(value)) return "Accessories";
+  if (/sweater|cardigan|pullover|knit/.test(value)) return "Sweaters";
+  return "Tops";
+}
+
+function dynamicShopItem(
+  product: ScrapedItem,
+  index: number,
+  profileColors: string[] = [],
+): ShopItem | null {
+  if (!product.image || !product.url.startsWith("http")) return null;
+  const value = `${product.title} ${product.description ?? ""}`.toLowerCase();
+  const fromCopy = PRODUCT_COLORS.filter((color) => value.includes(color));
+  // Seed with the wearer's preferred colors so ranking can stay profile-aware
+  // even when the product listing omits color words.
+  const palette = Array.from(
+    new Set([
+      ...fromCopy,
+      ...profileColors.map((c) => c.toLowerCase()).filter((c) => PRODUCT_COLORS.includes(c) || c.length > 2),
+    ]),
+  );
+  const season = /wool|cashmere|puffer|coat|boot|winter|cold/.test(value)
+    ? "Cold"
+    : /linen|sandal|straw|summer|warm weather/.test(value)
+      ? "Warm"
+      : "Year-round";
+  let retailer = "Retailer";
+  try {
+    retailer = new URL(product.url).hostname.replace(/^www\./, "");
+  } catch {
+    // Keep generic retailer label for malformed metadata.
+  }
+  return {
+    id: `personalized-${index}-${product.url}`,
+    name: product.title,
+    brand: product.brand ?? retailer,
+    retailer,
+    category: inferProductCategory(product),
+    price: product.price || "View price",
+    url: product.url,
+    image: product.image,
+    palette,
+    season,
+  };
+}
+
 const EXAMPLE_PROMPTS = [
   "Lisbon in July",
   "October wedding",
@@ -280,74 +381,56 @@ export const Route = createFileRoute("/outfits")({
   component: OutfitsPage,
 });
 
-function MannequinLook({
+function ClothingLookGrid({
   o,
   onSlotClick,
 }: {
   o: Outfit;
   onSlotClick?: (slot: Slot) => void;
 }) {
-  const slotClass =
-    "absolute object-contain mix-blend-multiply cursor-pointer transition hover:scale-[1.03]";
+  const pieces = [
+    ["outer", o.outer],
+    ["top", o.top],
+    ["bottom", o.bottom],
+    ["shoes", o.shoes],
+    ["accessory", o.accessory],
+  ].filter((entry): entry is [Slot, Item] => Boolean(entry[1]));
+
   return (
-    <div className="relative w-full aspect-[4/5] rounded-2xl bg-white overflow-hidden border border-border/30">
-      <div className="absolute top-[8%] left-1/2 -translate-x-1/2 w-[60%] h-px bg-foreground/10" />
-      {o.outer && (
-        <img
-          src={o.outer.image}
-          alt={o.outer.name}
-          loading="lazy"
-          onClick={() => onSlotClick?.("outer")}
-          className={`${slotClass} top-[4%] left-1/2 -translate-x-1/2 w-[70%] aspect-[3/4] object-top rotate-[-1deg] opacity-95`}
-        />
-      )}
-      {o.top && (
-        <img
-          src={o.top.image}
-          alt={o.top.name}
-          loading="lazy"
-          onClick={() => onSlotClick?.("top")}
-          className={`${slotClass} top-[10%] left-1/2 -translate-x-1/2 w-[44%] aspect-[3/4] rotate-[1deg] shadow-lg`}
-        />
-      )}
-      {o.bottom && (
-        <img
-          src={o.bottom.image}
-          alt={o.bottom.name}
-          loading="lazy"
-          onClick={() => onSlotClick?.("bottom")}
-          className={`${slotClass} top-[44%] left-1/2 -translate-x-[52%] w-[42%] aspect-[3/4] rotate-[-1deg]`}
-        />
-      )}
-      {o.shoes && (
-        <img
-          src={o.shoes.image}
-          alt={o.shoes.name}
-          loading="lazy"
-          onClick={() => onSlotClick?.("shoes")}
-          className={`${slotClass} bottom-[6%] right-[6%] w-[34%] aspect-square rotate-[4deg]`}
-        />
-      )}
-      {o.accessory && (
-        <img
-          src={o.accessory.image}
-          alt={o.accessory.name}
-          loading="lazy"
-          onClick={() => onSlotClick?.("accessory")}
-          className={`${slotClass} top-[10%] right-[6%] w-[24%] aspect-square rounded-full rotate-[-6deg] border-2 border-background`}
-        />
-      )}
+    <div className="grid w-full aspect-[4/5] grid-cols-2 gap-px rounded-2xl bg-border/40 overflow-hidden border border-border/30">
+      {pieces.map(([slot, item], index) => (
+        <button
+          key={`${slot}-${item.id}`}
+          type="button"
+          onClick={() => onSlotClick?.(slot)}
+          className={`min-h-0 bg-white p-3 overflow-hidden transition hover:bg-card active:scale-[0.99] ${
+            pieces.length % 2 === 1 && index === 0 ? "col-span-2" : ""
+          }`}
+          aria-label={`Swap ${item.name}`}
+        >
+          <img
+            src={item.image}
+            alt={item.name}
+            loading="lazy"
+            className="h-full w-full object-contain mix-blend-multiply"
+          />
+        </button>
+      ))}
     </div>
   );
 }
 
-type ChatStep = 0 | 1 | 2;
+type ChatStep = 0 | 1 | 2 | 3;
 
 function OutfitsPage() {
   const { items: allItems, folders } = useCloset();
   const { profile } = useProfile();
+  const { looks: likedLooks } = useHeartedLooks();
   const items = useMemo(() => allItems.filter((i) => (i.status ?? "active") === "active"), [allItems]);
   const [seed, setSeed] = useState(0);
+  const [carouselApi, setCarouselApi] = useState<CarouselApi>();
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [slideCount, setSlideCount] = useState(0);
   const [savePick, setSavePick] = useState<{ pieces: Item[]; title: string } | null>(null);
   const [savedToFolderId, setSavedToFolderId] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState("");
@@ -356,8 +439,9 @@ function OutfitsPage() {
   const [picker, setPicker] = useState<{ lookIndex: number; slot: Slot } | null>(null);
   const [shopRecs, setShopRecs] = useState<ShopRec[] | null>(null);
   const [recsLoading, setRecsLoading] = useState(false);
+  const [personalizedPairings, setPersonalizedPairings] = useState<ShopItem[]>([]);
+  const [pairingsLoading, setPairingsLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiAnswer, setAiAnswer] = useState<string | null>(null);
   const [aiOutfits, setAiOutfits] = useState<AiOutfit[]>([]);
   const [chatHistory, setChatHistory] = useState<Array<{ role: "user" | "clem"; text: string }>>([]);
   const [refineDraft, setRefineDraft] = useState("");
@@ -366,15 +450,76 @@ function OutfitsPage() {
   const [chatStep, setChatStep] = useState<ChatStep>(0);
   const [draft, setDraft] = useState("");
   const [scenarioAns, setScenarioAns] = useState("");
-  const [followUpAns, setFollowUpAns] = useState("");
-  const [aiFollowUp, setAiFollowUp] = useState<{ question: string; chips: string[] } | null>(null);
-  const [aiFollowUpLoading, setAiFollowUpLoading] = useState(false);
+  const [locationAns, setLocationAns] = useState("");
+  const [timeOfYearAns, setTimeOfYearAns] = useState("");
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const personalizedShopQuery = useMemo(
+    () => buildPersonalizedShopQuery(profile, items),
+    [profile, items],
+  );
+  const pairingPrefs = useMemo(
+    () => ({
+      colors: profile.colors,
+      brands: profile.brands,
+      styles: profile.styleIdentities,
+      avoidColors: profile.avoidColors,
+    }),
+    [profile],
+  );
+  const hasProfilePairings = hasStyleProfile(profile);
 
   // Fetch weather on mount (quietly no-ops if geolocation is denied)
   useEffect(() => {
     fetchWeather().then((w) => { if (w) setWeather(w); }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!carouselApi) return;
+    const update = () => {
+      setActiveSlide(carouselApi.selectedScrollSnap());
+      setSlideCount(carouselApi.scrollSnapList().length);
+    };
+    update();
+    carouselApi.on("select", update);
+    carouselApi.on("reInit", update);
+    return () => {
+      carouselApi.off("select", update);
+      carouselApi.off("reInit", update);
+    };
+  }, [carouselApi]);
+
+  useEffect(() => {
+    carouselApi?.scrollTo(0);
+  }, [carouselApi, seed, aiOutfits]);
+
+  // Discover live products once per profile/closet shape. Each look then
+  // re-ranks this personalized pool for color, category and season fit.
+  useEffect(() => {
+    if (!personalizedShopQuery) {
+      setPersonalizedPairings([]);
+      setPairingsLoading(false);
+      return;
+    }
+    let alive = true;
+    setPairingsLoading(true);
+    searchProducts({ data: { query: personalizedShopQuery } })
+      .then((products) => {
+        if (!alive) return;
+        const mapped = products
+          .map((product, index) => dynamicShopItem(product, index, profile.colors))
+          .filter((item): item is ShopItem => item !== null);
+        setPersonalizedPairings(mapped);
+      })
+      .catch(() => {
+        if (alive) setPersonalizedPairings([]);
+      })
+      .finally(() => {
+        if (alive) setPairingsLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [personalizedShopQuery, profile.colors]);
 
   // Fetch profile-based shop recs once when items are loaded
   useEffect(() => {
@@ -388,20 +533,19 @@ function OutfitsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const submitted = chatStep === 2 ? scenarioAns : "";
+  const submitted = chatStep === 3 ? scenarioAns : "";
 
   const resetChat = () => {
     setChatStep(0);
     setDraft("");
     setScenarioAns("");
-    setFollowUpAns("");
-    setAiFollowUp(null);
-    setAiFollowUpLoading(false);
-    setAiAnswer(null);
-    setAiOutfits([]);
+    setLocationAns("");
+    setTimeOfYearAns("");
     setAiLoading(false);
+    setAiOutfits([]);
     setChatHistory([]);
     setRefineDraft("");
+    setOverrides({});
   };
   const answerQ1 = (val: string) => {
     const v = val.trim();
@@ -409,25 +553,28 @@ function OutfitsPage() {
     setScenarioAns(v);
     setDraft("");
     setChatStep(1);
-    setAiFollowUpLoading(true);
-    setAiFollowUp(null);
-    generateFollowUp(v)
-      .then((result) => { setAiFollowUp(result); setAiFollowUpLoading(false); })
-      .catch(() => setAiFollowUpLoading(false));
   };
   const answerQ2 = (val: string) => {
-    setFollowUpAns(val);
+    const v = val.trim();
+    if (!v) return;
+    setLocationAns(v);
     setDraft("");
     setChatStep(2);
+  };
+  const answerQ3 = (val: string) => {
+    const v = val.trim();
+    if (!v) return;
+    setTimeOfYearAns(v);
+    setDraft("");
+    setChatStep(3);
     setAiLoading(true);
-    setAiAnswer(null);
     setAiOutfits([]);
-    callGeminiStylist(scenarioAns, aiFollowUp?.question ?? "", val, items, undefined, weather, profile, items.filter((i) => i.favorite))
+    setOverrides({});
+    callGeminiStylist(scenarioAns, locationAns, v, items, undefined, weather, profile, items.filter((i) => i.favorite))
       .then((result) => {
         if (result) {
-          setAiAnswer(result.answer);
-          setAiOutfits(result.outfits);
           setChatHistory([{ role: "clem", text: result.answer }]);
+          setAiOutfits(result.outfits);
         }
         setAiLoading(false);
       })
@@ -440,17 +587,16 @@ function OutfitsPage() {
     setRefineDraft("");
     setChatHistory((prev) => [...prev, { role: "user", text: t }]);
     setAiLoading(true);
-    setAiOutfits([]);
+    setOverrides({});
     const extraContext = chatHistory
       .map((m) => `${m.role === "user" ? "User" : "Clem"}: ${m.text}`)
       .concat(`User: ${t}`)
       .join("\n");
-    callGeminiStylist(scenarioAns, aiFollowUp?.question ?? "", followUpAns, items, extraContext, weather, profile, items.filter((i) => i.favorite))
+    callGeminiStylist(scenarioAns, locationAns, timeOfYearAns, items, extraContext, weather, profile, items.filter((i) => i.favorite))
       .then((result) => {
         if (result) {
-          setAiAnswer(result.answer);
-          setAiOutfits(result.outfits);
           setChatHistory((prev) => [...prev, { role: "clem", text: result.answer }]);
+          setAiOutfits(result.outfits);
         }
         setAiLoading(false);
       })
@@ -458,18 +604,21 @@ function OutfitsPage() {
   };
 
   const baseOutfits = useMemo(() => buildOutfits(items, seed), [items, seed]);
+  const sourceOutfits = aiOutfits.length > 0 ? aiOutfits : baseOutfits;
   const outfits = useMemo(
     () =>
-      baseOutfits.map((o, i) => {
+      sourceOutfits.map((o, i) => {
         const ov = overrides[i];
         if (!ov) return o;
         return { ...o, ...ov };
       }),
-    [baseOutfits, overrides],
+    [sourceOutfits, overrides],
   );
+  const chatStyled = aiOutfits.length > 0;
+  const dayContext = useMemo(() => dayOfWeekContext(), []);
   const occasion: OccasionMatch | null = useMemo(
-    () => (submitted.trim() ? matchOccasion(submitted, items) : null),
-    [submitted, items],
+    () => (submitted.trim() && !chatStyled ? matchOccasion(submitted, items) : null),
+    [submitted, items, chatStyled],
   );
 
   const swapSlot = (lookIndex: number, slot: Slot, item: Item) => {
@@ -482,6 +631,30 @@ function OutfitsPage() {
 
   const reshuffle = () => {
     setOverrides({});
+    if (chatStyled) {
+      // Keep chat context; rotate algorithmic fallback only when not chat-styled.
+      // For chat looks, reshuffle asks Clem again with the same brief.
+      setAiLoading(true);
+      callGeminiStylist(
+        scenarioAns,
+        locationAns,
+        timeOfYearAns,
+        items,
+        "Reshuffle — give me a fresh set of outfits with different pieces if possible.",
+        weather,
+        profile,
+        items.filter((i) => i.favorite),
+      )
+        .then((result) => {
+          if (result?.outfits.length) {
+            setAiOutfits(result.outfits);
+            setChatHistory((prev) => [...prev, { role: "clem", text: result.answer || "Here are a few fresh options." }]);
+          }
+          setAiLoading(false);
+        })
+        .catch(() => setAiLoading(false));
+      return;
+    }
     setSeed((s) => s + 1);
   };
 
@@ -538,11 +711,10 @@ function OutfitsPage() {
 
         {/* Conversational styling — iMessage-style thread with Clem */}
         <div className="mb-4 rounded-2xl border border-border bg-card p-4">
-          {weather && (
-            <div className="mb-3 text-[10px] text-muted-foreground">
-              {weather.tempF}°F · {weather.condition}
-            </div>
-          )}
+          <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <span>{dayContext.dayName} · {dayContext.isWeekend ? "weekend" : "weekday"}</span>
+            {weather && <span>{weather.tempF}°F · {weather.condition}</span>}
+          </div>
           <div className="flex flex-col gap-2">
             <div className="flex justify-start">
               <div className="max-w-[78%] rounded-2xl rounded-bl-md bg-mint-soft/50 text-foreground px-3.5 py-2 text-sm leading-snug">
@@ -558,20 +730,10 @@ function OutfitsPage() {
               </div>
             )}
 
-            {chatStep >= 1 && aiFollowUpLoading && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl rounded-bl-md bg-mint-soft/50 px-4 py-3 flex items-center gap-1">
-                  <span className="size-1.5 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <span className="size-1.5 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <span className="size-1.5 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "300ms" }} />
-                </div>
-              </div>
-            )}
-
-            {chatStep >= 1 && aiFollowUp && !aiFollowUpLoading && (
+            {chatStep >= 1 && (
               <div className="flex justify-start">
                 <div className="max-w-[78%] rounded-2xl rounded-bl-md bg-mint-soft/50 text-foreground px-3.5 py-2 text-sm leading-snug">
-                  {aiFollowUp.question}
+                  Where will you be wearing it?
                 </div>
               </div>
             )}
@@ -579,12 +741,28 @@ function OutfitsPage() {
             {chatStep >= 2 && (
               <div className="flex justify-end">
                 <div className="max-w-[78%] rounded-2xl rounded-br-md bg-mauve text-cream px-3.5 py-2 text-sm leading-snug">
-                  {followUpAns}
+                  {locationAns}
                 </div>
               </div>
             )}
 
-            {chatStep >= 2 && chatHistory.map((msg, i) => (
+            {chatStep >= 2 && (
+              <div className="flex justify-start">
+                <div className="max-w-[78%] rounded-2xl rounded-bl-md bg-mint-soft/50 text-foreground px-3.5 py-2 text-sm leading-snug">
+                  What time of year or date is this for?
+                </div>
+              </div>
+            )}
+
+            {chatStep >= 3 && (
+              <div className="flex justify-end">
+                <div className="max-w-[78%] rounded-2xl rounded-br-md bg-mauve text-cream px-3.5 py-2 text-sm leading-snug">
+                  {timeOfYearAns}
+                </div>
+              </div>
+            )}
+
+            {chatStep >= 3 && chatHistory.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-sm leading-snug ${msg.role === "user" ? "rounded-br-md bg-mauve text-cream" : "rounded-bl-md bg-mint-soft/50 text-foreground"}`}>
                   {msg.text}
@@ -592,7 +770,7 @@ function OutfitsPage() {
               </div>
             ))}
 
-            {chatStep >= 2 && aiLoading && (
+            {chatStep >= 3 && aiLoading && (
               <div className="flex justify-start">
                 <div className="rounded-2xl rounded-bl-md bg-mint-soft/50 px-4 py-3 flex items-center gap-1">
                   <span className="size-1.5 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -626,31 +804,43 @@ function OutfitsPage() {
               </>
             )}
 
-            {chatStep === 1 && (aiFollowUp || !aiFollowUpLoading) && (
+            {chatStep === 1 && (
               <>
                 <form onSubmit={(e) => { e.preventDefault(); if (draft.trim()) answerQ2(draft.trim()); }} className="relative mb-2">
                   <input
                     type="text"
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
-                    placeholder="Reply to Clem…"
+                    placeholder="City or destination…"
                     className="w-full bg-background border border-border rounded-full pl-4 pr-3 py-2.5 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:border-foreground/30"
                   />
                 </form>
-                {aiFollowUp && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {aiFollowUp.chips.map((c) => (
-                      <button key={c} type="button" onClick={() => answerQ2(c)}
-                        className="text-[11px] tracking-[0.04em] px-3 py-1.5 rounded-full border border-mauve/40 text-foreground bg-mauve/5 hover:bg-mauve/15 transition">
-                        {c}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </>
             )}
 
             {chatStep === 2 && (
+              <>
+                <form onSubmit={(e) => { e.preventDefault(); if (draft.trim()) answerQ3(draft.trim()); }} className="relative mb-2">
+                  <input
+                    type="text"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder="Month, season, or exact date…"
+                    className="w-full bg-background border border-border rounded-full pl-4 pr-3 py-2.5 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:border-foreground/30"
+                  />
+                </form>
+                <div className="flex flex-wrap gap-1.5">
+                  {["Spring", "Summer", "Fall", "Winter"].map((season) => (
+                    <button key={season} type="button" onClick={() => answerQ3(season)}
+                      className="text-[11px] tracking-[0.04em] px-3 py-1.5 rounded-full border border-mauve/40 text-foreground bg-mauve/5 hover:bg-mauve/15 transition">
+                      {season}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {chatStep === 3 && (
               <>
                 <form onSubmit={(e) => { e.preventDefault(); refine(refineDraft); }} className="flex gap-2 mb-2">
                   <input
@@ -744,39 +934,6 @@ function OutfitsPage() {
           </div>
         )}
 
-        {aiOutfits.length > 0 && (
-          <div className="mb-8 animate-rise">
-            <p className="text-[10px] uppercase tracking-[0.28em] text-mint mb-1">Styled for you</p>
-            <p className="text-[10px] text-muted-foreground mb-4">Picked by Clem · {scenarioAns}</p>
-            <div className="space-y-8">
-              {aiOutfits.map((o, i) => {
-                const pieces = [o.outer, o.top, o.bottom, o.shoes, o.accessory].filter(Boolean) as Item[];
-                return (
-                  <article key={`ai-${i}`} className="animate-rise" style={{ animationDelay: `${i * 80}ms` }}>
-                    <MannequinLook o={o} onSlotClick={(slot) => setPicker({ lookIndex: -(i + 1), slot })} />
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[9px] uppercase tracking-[0.22em] text-mint">Look {String(i + 1).padStart(2, "0")} · AI styled</p>
-                        <p className="font-serif text-base leading-tight tracking-[0.04em] uppercase truncate">{o.title}</p>
-                        {o.rationale && <p className="text-[10px] font-serif italic text-ink/60 mt-0.5 leading-snug">{o.rationale}</p>}
-                      </div>
-                      {pieces.length > 0 && (
-                        <button type="button" onClick={() => setSavePick({ pieces, title: o.title })}
-                          className="shrink-0 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] border border-ink/25 text-ink/70 px-3 py-2 hover:bg-ink hover:text-cream transition active:scale-95">
-                          <BookmarkPlus className="size-3" strokeWidth={1.5} /> Save
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-            <div className="mt-6 mb-2 border-t border-border/40 pt-6">
-              <p className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground mb-1">All looks</p>
-            </div>
-          </div>
-        )}
-
         {outfits.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <Sparkles className="size-7 mx-auto mb-3 opacity-50" strokeWidth={1.5} />
@@ -786,19 +943,29 @@ function OutfitsPage() {
             <p className="text-xs">Looks appear once your closet has a few items.</p>
           </div>
         ) : (
-          <div className="space-y-8 pb-10">
-            {outfits.map((o, i) => {
+          <div className="pb-10">
+            <Carousel
+              setApi={setCarouselApi}
+              opts={{ align: "start", loop: false }}
+              className="touch-pan-y"
+            >
+              <CarouselContent>
+            {outfits.slice(0, 3).map((o, i) => {
               const pieces = [o.outer, o.top, o.bottom, o.shoes, o.accessory].filter(
                 Boolean,
               ) as Item[];
               const remixed = Boolean(overrides[i]);
+              const liked = likedLooks.some(
+                (look) => look.signature === outfitSignature(o),
+              );
+              const rationale = "rationale" in o ? (o as AiOutfit).rationale : undefined;
               return (
-                <article
-                  key={`${o.title}-${seed}-${i}`}
-                  className="animate-rise"
-                  style={{ animationDelay: `${i * 80}ms` }}
+                <CarouselItem
+                  key={`${chatStyled ? "chat" : "seed"}-${o.title}-${seed}-${i}`}
+                  aria-label={`Look ${i + 1} of ${Math.min(3, outfits.length)}`}
                 >
-                  <MannequinLook
+                <article className="animate-rise px-0.5">
+                  <ClothingLookGrid
                     o={o}
                     onSlotClick={(slot) => setPicker({ lookIndex: i, slot })}
                   />
@@ -806,12 +973,32 @@ function OutfitsPage() {
                   <div className="mt-2 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[9px] uppercase tracking-[0.22em] text-mint">
-                        Look {String(i + 1).padStart(2, "0")}{remixed ? " · remixed" : ""}
+                        Look {String(i + 1).padStart(2, "0")}
+                        {chatStyled ? " · styled for you" : ""}
+                        {remixed ? " · remixed" : ""}
                       </p>
                       <p className="font-serif text-base leading-tight tracking-[0.04em] uppercase truncate">{o.title}</p>
+                      {rationale && (
+                        <p className="text-[10px] font-serif italic text-ink/60 mt-0.5 leading-snug line-clamp-2">
+                          {rationale}
+                        </p>
+                      )}
                     </div>
                     {pieces.length > 0 && (
                       <div className="flex gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => heartedLooks.toggle(o)}
+                          className={`size-9 grid place-items-center border transition active:scale-90 ${
+                            liked
+                              ? "border-mauve bg-mauve text-cream"
+                              : "border-ink/25 text-ink/70 hover:border-mauve hover:text-mauve"
+                          }`}
+                          aria-label={liked ? "Remove outfit from favorites" : "Heart this outfit"}
+                          aria-pressed={liked}
+                        >
+                          <Heart className={`size-4 ${liked ? "fill-current" : ""}`} strokeWidth={1.5} />
+                        </button>
                         <button type="button" onClick={() => setSavePick({ pieces, title: o.title })}
                           className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] border border-ink/25 text-ink/70 px-3 py-2 hover:bg-ink hover:text-cream transition active:scale-95">
                           <BookmarkPlus className="size-3" strokeWidth={1.5} /> Save
@@ -826,8 +1013,17 @@ function OutfitsPage() {
 
                   {/* Suggested pairings from retailers */}
                   {(() => {
-                    const suggestions = pickPairings(o, 2);
+                    const suggestions = pickPairings(
+                      o,
+                      2,
+                      personalizedPairings.length > 0 ? personalizedPairings : undefined,
+                      hasProfilePairings ? pairingPrefs : undefined,
+                    );
                     if (suggestions.length === 0) return null;
+                    const profileLabel = profile.styleIdentities[0]
+                      ?? profile.brands[0]
+                      ?? profile.colors[0]
+                      ?? "your profile";
                     return (
                       <div className="mt-5 pt-4 border-t border-border/60">
                         <div className="flex items-baseline justify-between mb-3">
@@ -835,7 +1031,11 @@ function OutfitsPage() {
                             Pairs well · Sponsored
                           </p>
                           <p className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground italic">
-                            Hand-picked
+                            {pairingsLoading
+                              ? "Personalizing…"
+                              : hasProfilePairings
+                                ? `For ${profileLabel}`
+                                : "Hand-picked"}
                           </p>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -885,8 +1085,29 @@ function OutfitsPage() {
                     );
                   })()}
                 </article>
+                </CarouselItem>
               );
             })}
+              </CarouselContent>
+              <CarouselPrevious className="left-2 top-[34%] bg-background/90 border-border shadow-sm disabled:hidden" />
+              <CarouselNext className="right-2 top-[34%] bg-background/90 border-border shadow-sm disabled:hidden" />
+            </Carousel>
+            {slideCount > 1 && (
+              <div className="mt-5 flex items-center justify-center gap-2" aria-label="Choose outfit">
+                {Array.from({ length: slideCount }, (_, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => carouselApi?.scrollTo(index)}
+                    className={`h-1.5 rounded-full transition-all ${
+                      activeSlide === index ? "w-6 bg-mauve" : "w-1.5 bg-ink/20"
+                    }`}
+                    aria-label={`Go to look ${index + 1}`}
+                    aria-current={activeSlide === index ? "true" : undefined}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1075,7 +1296,7 @@ function OutfitsPage() {
                   const swap: Partial<Record<Slot, Item>> = {};
                   const fake = { id: "try-on", name: tryOn.sponsored.name, image: tryOn.sponsored.image } as unknown as Item;
                   if (cat === "Outerwear") swap.outer = fake;
-                  else if (cat === "Tops") swap.top = fake;
+                  else if (cat === "Tops" || cat === "Sweaters" || cat === "Dresses") swap.top = fake;
                   else if (cat === "Bottoms") swap.bottom = fake;
                   else if (cat === "Shoes") swap.shoes = fake;
                   else swap.accessory = fake;

@@ -1,12 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { PageShell } from "@/components/vesti/PageShell";
+import { ImageWorkingOverlay } from "@/components/vesti/ImageWorkingOverlay";
+import { StudioJobStrip } from "@/components/vesti/StudioJobStrip";
 import { useReceipts, receipts, type DetectedReceipt } from "@/lib/vesti/receipts";
 import { CATEGORIES, SEASONS, type Category, type Season, closet } from "@/lib/vesti/store";
 import { Check, X, Mail, RefreshCw, Sparkles, ArrowLeft, CalendarClock, BellRing, Camera, Pencil, Zap } from "lucide-react";
 import { connectGmail, fetchReceiptEmails, fetchEmailProductImage, getStoredToken, clearToken, type FetchProgress } from "@/lib/vesti/gmail-sync";
 import { parseReceiptEmails, type ParsedReceipt, type GroqProgress } from "@/lib/api/gmail.functions";
-import { gptImageStudio } from "@/lib/vesti/supabase-storage";
+import { useStudioQueue } from "@/lib/vesti/use-studio-queue";
 import { addCredits } from "@/lib/vesti/credits";
 import shopBag from "@/assets/shop-bag-camel.jpg";
 
@@ -99,10 +101,22 @@ function ReviewReceiptSheet({ receipt, onClose }: { receipt: DetectedReceipt; on
   const [preview, setPreview] = useState(receipt.image);
   const [rawBlob, setRawBlob] = useState<Blob | null>(null);
   const [loadingImg, setLoadingImg] = useState(false);
-  const [studioProcessing, setStudioProcessing] = useState(false);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [studioStyle, setStudioStyle] = useState<"studio" | "editorial" | "luxe" | "casual">("studio");
   const fileRef = useRef<HTMLInputElement>(null);
+  const {
+    jobs: studioJobs,
+    enqueue: enqueueStudio,
+    dismiss: dismissStudioJob,
+    workingCount: studioWorking,
+    queuedCount: studioQueued,
+  } = useStudioQueue((job) => {
+    setRawBlob(job.result);
+    const reader = new FileReader();
+    reader.onload = () => setPreview(reader.result as string);
+    reader.readAsDataURL(job.result);
+  });
+  const studioProcessing = studioWorking + studioQueued > 0;
 
   useEffect(() => {
     if (!receipt.id.startsWith("gmail-")) return;
@@ -124,19 +138,14 @@ function ReviewReceiptSheet({ receipt, onClose }: { receipt: DetectedReceipt; on
   };
 
   const onGptStudio = async () => {
-    setStudioProcessing(true);
     setStudioError(null);
     try {
-      const source = rawBlob ?? await fetch(preview).then((r) => r.blob());
-      const blob = await gptImageStudio(source, category, studioStyle);
-      setRawBlob(blob);
-      const reader = new FileReader();
-      reader.onload = () => setPreview(reader.result as string);
-      reader.readAsDataURL(blob);
+      const source: Blob = rawBlob
+        ? rawBlob
+        : await fetch(preview).then((r) => r.blob());
+      enqueueStudio({ file: source, category, style: studioStyle });
     } catch (e) {
       setStudioError(e instanceof Error ? e.message : "AI Studio failed — try picking a photo first");
-    } finally {
-      setStudioProcessing(false);
     }
   };
 
@@ -170,6 +179,7 @@ function ReviewReceiptSheet({ receipt, onClose }: { receipt: DetectedReceipt; on
               <RefreshCw className="size-5 animate-spin text-mint" strokeWidth={1.5} />
             </div>
           )}
+          <ImageWorkingOverlay working={studioWorking} queued={studioQueued} />
           <span className="absolute top-3 left-3 text-[9px] uppercase tracking-[0.22em] bg-background/85 backdrop-blur px-2 py-1 rounded-full">
             From {receipt.retailer}
           </span>
@@ -194,15 +204,15 @@ function ReviewReceiptSheet({ receipt, onClose }: { receipt: DetectedReceipt; on
             <button
               type="button"
               onClick={onGptStudio}
-              disabled={studioProcessing}
               className="inline-flex items-center gap-1.5 bg-mint/90 backdrop-blur px-2.5 py-1.5 rounded-full text-[9px] uppercase tracking-[0.18em] text-white transition disabled:opacity-50"
             >
               <Zap className={`size-3 ${studioProcessing ? "animate-pulse" : ""}`} strokeWidth={1.5} />
-              {studioProcessing ? "Generating…" : "AI Studio"}
+              {studioProcessing ? "Queue another" : "AI Studio"}
             </button>
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
+              disabled={studioProcessing}
               className="inline-flex items-center gap-1.5 bg-background/85 backdrop-blur px-2.5 py-1.5 rounded-full text-[9px] uppercase tracking-[0.18em] text-foreground/70 hover:text-foreground transition"
             >
               <Camera className="size-3" strokeWidth={1.5} />
@@ -210,6 +220,18 @@ function ReviewReceiptSheet({ receipt, onClose }: { receipt: DetectedReceipt; on
             </button>
           </div>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0])} />
+        </div>
+        <div className="px-6 pt-2">
+          <StudioJobStrip
+            jobs={studioJobs}
+            onSelect={(job) => {
+              setRawBlob(job.result);
+              const reader = new FileReader();
+              reader.onload = () => setPreview(reader.result as string);
+              reader.readAsDataURL(job.result);
+            }}
+            onDismiss={dismissStudioJob}
+          />
         </div>
         {studioError && (
           studioError === "not-enough" ? (
