@@ -11,7 +11,18 @@ import { useProfile, type UserProfile } from "@/lib/vesti/profile";
 import { computeClosetScore } from "@/lib/vesti/closet-score";
 import { reminderPrefs, useReminderPrefs } from "@/lib/vesti/reminders";
 import { useAuth } from "@/lib/auth-context";
-import { Copy, Check, Settings, LogOut, Pencil, ChevronDown, Sparkles, ArrowRight, Key } from "lucide-react";
+import {
+  Copy,
+  Check,
+  Settings,
+  LogOut,
+  Pencil,
+  ChevronDown,
+  Sparkles,
+  ArrowRight,
+  Key,
+  BookOpen,
+} from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { setPhotoroomKey, getStoredPhotoroomKey } from "@/lib/vesti/supabase-storage";
 
@@ -319,6 +330,30 @@ function ProfilePage() {
                 </span>
                 <ArrowRight className="size-3.5 text-ink/30" strokeWidth={1.5} />
               </button>
+            </li>
+            <li>
+              <Link
+                to="/tutorial"
+                aria-label="Replay the step-by-step tutorial"
+                className="w-full flex items-center justify-between gap-4 py-5 text-left text-ink/85 hover:text-ink transition"
+              >
+                <span className="flex items-start gap-4 font-light">
+                  <BookOpen
+                    className="mt-0.5 size-4 shrink-0 text-ink/50"
+                    strokeWidth={1}
+                  />
+                  <span>
+                    <span className="block text-sm">Step-by-step tutorial</span>
+                    <span className="mt-0.5 block font-serif text-xs italic text-ink/50">
+                      Replay Clem&apos;s 60-second guide.
+                    </span>
+                  </span>
+                </span>
+                <ArrowRight
+                  className="size-3.5 shrink-0 text-ink/30"
+                  strokeWidth={1.5}
+                />
+              </Link>
             </li>
             <li>
               <button type="button" onClick={() => void signOut()} className="w-full flex items-center justify-between py-5 text-sm text-ink/85 hover:text-ink transition">
